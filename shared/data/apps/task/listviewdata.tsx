@@ -1,0 +1,252 @@
+interface ListType {
+    value: string;
+    label: string;
+}
+export const Listviewassigneddata: ListType[] = [
+    { value: 'Angelina May', label: 'Angelina May' },
+    { value: 'Hercules Jhon', label: 'Hercules Jhon' },
+    { value: 'Mayor Kim', label: 'Mayor Kim' },
+    { value: 'Sarah Ruth', label: 'Sarah Ruth' },
+]
+export const Prioritydata: ListType[] = [
+    { value: 'High', label: 'High' },
+    { value: 'Low', label: 'Low' },
+    { value: 'Medium', label: 'Medium' }
+]
+export const Statusdata: ListType[] = [
+    { value: 'Completed', label: 'Completed' },
+    { value: 'Inprogress', label: 'Inprogress' },
+    { value: 'New', label: 'New' },
+    { value: 'Pending', label: 'Pending' }
+]
+
+interface Listdata {
+    id: number;
+    title: string;
+    code: string;
+    startDate: string;
+    status: string;
+    dueDate: string;
+    priority: string;
+    avatars: string | any;
+    reviewStatus: string;
+    isChecked: boolean | any;
+    color: string;
+    color1: string;
+    color2: string;
+    count: string;
+}
+export const Listviewdata: Listdata[] = [
+    {
+        avatars: ["2.jpg", "8.jpg", "2.jpg"],
+        id: 1,
+        title: "Design New Landing Page",
+        code: "SPK - 01",
+        startDate: "02-06-2024",
+        status: "New",
+        dueDate: "10-06-2024",
+        priority: "Medium",
+        reviewStatus: "In Review",
+        isChecked: "",
+        color: "primary",
+        color1: "secondary",
+        color2: "info",
+        count: "2",
+    },
+    {    id: 2,
+        title: "New Project Blueprint",
+        code: "SPK - 04",
+        startDate: "05-06-2024",
+        status: "In Progress",
+        dueDate: "15-06-2024",
+        priority: "High",
+        reviewStatus: "On Hold",
+        isChecked: true,
+        color: "secondary",
+        color1: "danger",
+        color2: "warning",
+        count: "4",
+        avatars: ["12.jpg", "11.jpg"],
+    },
+    {
+        id: 3,
+        title: "Server Side Validation",
+        code: "SPK - 11",
+        startDate: "12-06-2024",
+        status: "Pending",
+        dueDate: "16-06-2024",
+        priority: "Low",
+        reviewStatus: "In Review",
+        isChecked: "",
+        color: "warning",
+        color1: "success",
+        color2: "info",
+        count: "5",
+        avatars: ["5.jpg", "9.jpg", "13.jpg"],
+    },
+    {
+        id: 4,
+        title: "New Project Buleprint",
+        code: "SPK - 12",
+        startDate: "01-07-2024",
+        status: "Inprogress",
+        dueDate: "10-07-2024",
+        priority: "High",
+        reviewStatus: "In Review",
+        isChecked: true,
+        color: "secondary",
+        color1: "danger",
+        color2: "info",
+        count: "4",
+        avatars: ["6.jpg", "10.jpg"],
+       
+    },
+    {
+        id: 5,
+        title: "Server Side Validation",
+        code: "SPK - 13",
+        startDate: "15-07-2024",
+        status: "Pending",
+        dueDate: "20-07-2024",
+        priority: "Low",
+        reviewStatus: "In Review",
+        isChecked: "",
+        color: "warning",
+        color1: "success",
+        color2: "info",
+        count: "5",
+        avatars: ["3.jpg", "7.jpg", "4.jpg"],
+    },
+    {
+        id: 6,
+        title: "New Plugin Development",
+        code: "SPK - 24",
+        startDate: "08-06-2024",
+        status: "Completed",
+        dueDate: "17-06-2024",
+        priority: "Low",
+        reviewStatus: "On Hold",
+        isChecked: true,
+        color: "success",
+        color1: "success",
+        color2: "warning",
+        count: "2",
+        avatars: ["2.jpg", "8.jpg"],
+    },
+    {
+        id: 7,
+        title: "Designing New Authentication Page",
+        code: "SPK - 16",
+        startDate: "03-06-2024",
+        status: "In Progress",
+        dueDate: "08-06-2024",
+        priority: "Medium",
+        reviewStatus: "In Review",
+        isChecked: "",
+        color: "secondary",
+        color1: "secondary",
+        color2: "info",
+        count: "3",
+        avatars: ["10.jpg", "15.jpg"],
+    },
+    {
+        id: 8,
+        title: "New Plugin Development",
+        code: "SPK - 24",
+        startDate: "08-06-2024",
+        status: "Completed",
+        dueDate: "17-06-2024",
+        priority: "Low",
+        reviewStatus: "In Review",
+        isChecked: "",
+        color: "success",
+        color1: "success",
+        color2: "info",
+        count: "2",
+        avatars: ["2.jpg", "8.jpg"],
+    },
+    {
+        id: 9,
+        title: "Designing New Authentication Page",
+        code: "SPK - 16",
+        startDate: "03-06-2024",
+        status: "In Progress",
+        dueDate: "08-06-2024",
+        priority: "Medium",
+        reviewStatus: "In Review",
+        isChecked: "",
+        color: "secondary",
+        color1: "secondary",
+        color2: "info",
+        count: "3",
+        avatars: ["10.jpg", "15.jpg"],
+    },
+    {
+        id: 10,
+        title: "Documentation For New Template",
+        code: "SPK - 07",
+        startDate: "12-06-2024",
+        status: "New",
+        dueDate: "25-06-2024",
+        priority: "High",
+        reviewStatus: "On Hold",
+        isChecked: "",
+        color: "primary",
+        color1: "danger",
+        color2: "warning",
+        count: "1",
+        avatars: ["12.jpg"],
+    },
+];
+
+
+export const taskData = [
+    {
+        id: 1,
+        title: "New Tasks",
+        count: "45,478",
+        percentageChange: "2.56%",
+        changeDirection: "up",
+        Icon: "ri ri-task-line",
+        backgroundColor: "primary",
+        inc: 'Increased By',
+        color: 'success',
+        icon: 'ti ti-arrow-narrow-up',
+    },
+    {
+        id: 2,
+        title: "Completed Tasks",
+        count: "2,345",
+        percentageChange: "3.05%",
+        changeDirection: "down",
+        Icon: "ri ri-check-line",
+        backgroundColor: "primarytint1color",
+        inc: 'Decreased By',
+        color: 'danger',
+        icon: 'ti ti-arrow-narrow-down',
+    },
+    {
+        id: 3,
+        title: "Pending Tasks",
+        count: "1,245",
+        percentageChange: "2.16%",
+        changeDirection: "up",
+        Icon: "ri ri-time-line",
+        backgroundColor: "primarytint2color",
+        inc: 'Increased By',
+        color: 'success',
+        icon: 'ti ti-arrow-narrow-up',
+    },
+    {
+        id: 4,
+        title: "Inprogress Tasks",
+        count: "658",
+        percentageChange: "2.1%",
+        changeDirection: "up",
+        Icon: "ri ri-loader-line",
+        backgroundColor: "primarytint3color",
+        inc: 'Increased By',
+        color: 'success',
+        icon: 'ti ti-arrow-narrow-up',
+    },
+];

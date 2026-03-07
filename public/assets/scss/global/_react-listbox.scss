@@ -1,0 +1,99 @@
+
+@font-face { font-family: "Ionicons"; src: url(../public/assets/icon-fonts/react-listbox/fonts/ionicons.woff?v=2.0.0) format("woff"); font-weight: normal; font-style: normal; }
+.ion, .ionicons, .ion-arrow-down-b:before, .ion-arrow-left-a:before, .ion-arrow-right-a:before, .ion-arrow-up-b:before, .ion-ios-skipbackward:before, .ion-ios-skipforward:before 
+{ display: inline-block; font-family: "Ionicons"; speak: none; font-style: normal; font-weight: normal; font-variant: normal; text-transform: none; text-rendering: auto; line-height: 1; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+.ion-arrow-down-b:before { content: "\f104"; }
+
+.ion-arrow-left-a:before { content: "\f106"; }
+
+.ion-arrow-right-a:before { content: "\f109"; }
+
+.ion-arrow-up-b:before { content: "\f10d"; }
+
+.ion-ios-skipbackward:before { content: "\f4ab"; }
+
+.ion-ios-skipforward:before { content: "\f4ad"; }
+
+.ms-container{
+ @apply w-[570px] ;
+}
+
+.ms-container{
+  @apply after:block after:h-0 after:leading-[0] after:text-[0] after:clear-both after:min-h-0 after:invisible;
+
+}
+
+.ms-container .ms-selectable, .ms-container .ms-selection{
+  @apply bg-white dark:bg-bodybg text-[#555555] float-left w-[43%] ;
+}
+.ms-selectionpanel,.ms-selectionpanel2{
+ @apply bg-white dark:bg-bodybg text-[#555555] float-left w-[7%];
+}
+.ms-container .ms-selection{
+ @apply float-right ;
+}
+.ms-container .ms-selectionpanel2{
+  @apply float-right #{!important} ;
+}
+.ms-container .ms-selectionpanel2 span,
+.ms-container .ms-selectionpanel span{
+  @apply text-xs;
+}
+
+.ms-container .ms-list{
+   @apply  transition-[border_linear_0.2s,box-shadow_linear_0.2s] border border-defaultborder dark:border-defaultborder/10 rounded-[3px] h-[340px] overflow-y-auto p-0 relative;
+}
+
+
+.ms-container .ms-list.ms-focus{
+  @apply border-primary  outline-none;
+}
+
+.ms-container ul{
+  @apply list-none m-0 p-0;
+}
+
+.ms-container .ms-optgroup-container{
+  @apply w-full ;
+}
+
+.ms-container .ms-optgroup-label{
+  @apply cursor-pointer text-[#999] m-0 ps-[5px] pe-0 pt-[5px] pb-0;
+}
+
+.ms-container .ms-selectable li.ms-elem-selectable,
+.ms-container .ms-selection li.ms-elem-selection{
+  @apply text-[#555] text-sm cursor-pointer p-3 border-b border-defaultborder dark:border-defaultborder/10; 
+}
+
+.ms-container .ms-selectable li.selected,
+.ms-container .ms-selection li.selected {
+  @apply text-white bg-[#6969c4]  border-b border-defaultborder dark:border-defaultborder/10;
+}
+
+.ms-container .ms-selectable li:hover,
+.ms-container .ms-selection li:hover{
+  @apply cursor-pointer text-white bg-[#8e8ed3];
+}
+
+.ms-container .ms-selectable li.disabled,
+.ms-container .ms-selection li.disabled{ 
+  @apply bg-[#eee] text-[#aaa] cursor-text;
+}
+
+i.icon {
+ @apply text-sm;
+}
+
+input.search-input{
+ @apply box-border w-full rounded-sm h-[30px] bg-white border  mb-[5px]  border border-defaultborder dark:border-defaultborder/10;
+
+}
+input[type="text"]{
+  @apply inline-block leading-5 text-sm text-[#555] align-middle ml-0 px-1.5 py-1;
+
+}
+
+
+

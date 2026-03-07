@@ -1,0 +1,75 @@
+@use "../public/assets/scss/tailwind/tailwind";
+@use "react-color-palette/css"; //color picker
+@import "../public/assets/css/styles.css";
+@import "gridjs/dist/theme/mermaid.css"; // (Grid css)
+
+@import "simplebar-react/dist/simplebar.min.css";
+@import "shepherd.js/dist/css/shepherd.css";
+@import "filepond/dist/filepond.min.css"; //file pond css
+@import "filepond-plugin-image-preview/dist/filepond-plugin-image-preview.css"; //dependencies plugin css for react file pond package
+
+@import "react-phone-number-input/style.css";
+@import "plyr-react/plyr.css";
+
+@import url("../public/assets/icon-fonts/RemixIcons/fonts/remixicon.css");
+@import url("../public/assets/icon-fonts/feather/feather.css");
+@import url("../public/assets/icon-fonts/bootstrap-icons/icons/font/bootstrap-icons.css");
+@import url("../public/assets/icon-fonts/tabler-icons/webfont/tabler-icons.css");
+@import url("../public/assets/icon-fonts/line-awesome/1.3.0/css/line-awesome.css");
+@import url("../public/assets/icon-fonts/boxicons/css/boxicons.css");
+
+body {
+  font-family: var(--font-geist-sans), sans-serif;
+}
+
+html.light body,
+html.light .page,
+html.light .main-content.app-content,
+html.light .main-content.app-content > .container-fluid,
+html.light .app-header,
+html.light .footer {
+	background: #ffffff !important;
+}
+
+html.light .page-header-breadcrumb,
+html.light .footer {
+	background: #ffffff !important;
+}
+
+html.dark {
+  --body-bg: 32 41 71;
+  --dark-bg: 32 41 71;
+  --menu-bg: 32 41 71;
+  --header-bg: 32 41 71;
+  --default-background: 32 41 71;
+  --default-body-bg-color: 32 41 71;
+  --custom-white: 32 41 71;
+  --form-control-bg: 32 41 71;
+}
+
+html.dark body,
+html.dark .page,
+html.dark .app-sidebar,
+html.dark .main-sidebar,
+html.dark .app-header,
+html.dark .main-content.app-content,
+html.dark .main-content.app-content > .container-fluid,
+html.dark .page-header-breadcrumb,
+html.dark .footer,
+html.dark .box,
+html.dark .table,
+html.dark .table-responsive,
+html.dark .rdt_Table,
+html.dark .rdt_TableHeadRow,
+html.dark .rdt_TableRow,
+html.dark .rdt_Pagination {
+  background: rgb(32 41 71) !important;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-geist-mono), monospace;
+}
+

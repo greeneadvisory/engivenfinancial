@@ -1,0 +1,453 @@
+﻿Admin API
+
+
+Include In Header
+Authorization: API_KEY
+
+
+Crypto
+POST
+https://platform.engiven.com/api/admin/reports/crypto
+
+
+Note: By default queries are set to search for confirmed and liquidated gifts only
+i.e. “transactionStatus”: “confirmed” and usdValueForNpo: { “!” : null }
+
+
+Note: Custody Deposits will be noted in this table. Custody Liquidations are in a separate table below
+
+
+Fields
+id: { type: 'integer', primaryKey: true, required: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+npo: { type: 'integer' }
+npoName: { type: 'string' }
+EIN: { type: 'string' }
+guideStarNPO: { type: 'integer' }
+guideStarName: { type: 'string' }
+guideStarEIN: { type: 'string' }
+apiPartner: { type: 'integer' }
+apiPartnerName: { type: 'string' }
+instantPartner: { type: 'integer' }
+instantPartnerName: { type: 'string' }
+affiliate: { type: 'integer' }
+affiliateName: { type: 'string' }
+toAddress: { type: 'string' }
+destinationTag: { type: 'string' }
+donorName: { type: 'string' }
+donorPhone: { type: 'string' }
+donorAddress1: { type: 'string' }
+donorAddress2: { type: 'string' }
+donorCity: { type: 'string' }
+donorState: { type: 'string' }
+donorZipCode: { type: 'string' }
+donorCountry: { type: 'string' }
+donorMemo: { type: 'string' }
+notes: { type: 'string' }
+transactionHash: { type: 'string' }
+transactionPromisedTimeStamp: { type: 'datetime' }
+transactionConfirmedTimeStamp: { type: 'datetime' }
+transactionExpiredTimeStamp: { type: 'datetime' }
+transactionStatus: { type: 'string' }
+isCustody: { type: 'boolean' }
+pledgedAmount: { type: 'string' }
+amount: { type: 'string' }
+custodyAmount: { type: 'string' }
+custodyDepositFee: { type: 'string' }
+currency: { type: 'string' }
+currencyName: { type: 'string' }
+usdValueAtConfirmation: { type: 'string' }
+usdValueForNpo: { type: 'string' }
+statusFromAdmin: { type: 'string' }
+achDateEntered: { type: 'datetime' }
+achReferenceNumber: { type: 'string' }
+fiscalSponsor: { type: 'integer' }
+statusFromFiscalSponsor: { type: 'string' }
+statusNoteFiscalSponsor: { type: 'string' }
+achDateEnteredFiscalSponsor: { type: 'datetime' }
+achReferenceNumberFiscalSponsor: { type: 'string' }
+geminiFee: { type: 'string' }
+anonymousToBeneficiary: { type: 'boolean' }
+customDonor: { type: 'integer' }
+customDonorName: { type: 'string' }
+customDonorEmail: { type: 'string }
+customDonorCryptoFeeRate: { type: 'string' }
+customDonorFiscalSponsorFee: { type: 'string' }
+Stock
+POST
+https://platform.engiven.com/api/admin/reports/stock
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+npo: { type: 'integer' }
+npoName: { type: 'string' }
+EIN: { type: 'string' }
+guideStarNPO: { type: 'integer' }
+guideStarName: { type: 'string' }
+guideStarEIN: { type: 'string' }
+apiPartner: { type: 'integer' }
+apiPartnerName: { type: 'string' }
+instantPartner: { type: 'integer' }
+instantPartnerName: { type: 'string' }
+affiliate: { type: 'integer' }
+affiliateName: { type: 'string' }
+stockStatus: { type: 'integer' }
+statusInternalName: { type: 'string' }
+statusExternalName: { type: 'string' }
+promisedTimeStamp: { type: 'datetime' }
+pledgeConfirmedTimeStamp: { type: 'datetime' }
+receivedTimeStamp: { type: 'datetime' }
+liquidatedTimeStamp: { type: 'datetime' }
+paidTimeStamp: { type: 'datetime' }
+grossUSD: { type: 'string' }
+netUSD: { type: 'string' }
+numberOfSharesPledged: { type: 'string' }
+numberOfShares: { type: 'string' }
+ticker: { type: 'string' }
+tickerName: { type: 'string' }
+typeOfShare: { type: 'string' }
+sourceOfFunds: { type: 'string' }
+donorName: { type: 'string' }
+donorPhone: { type: 'string' }
+donorAddress1: { type: 'string' }
+donorAddress2: { type: 'string' }
+donorCity: { type: 'string' }
+donorState: { type: 'string' }
+donorZipCode: { type: 'string' }
+donorCountry: { type: 'string' }
+donorMemo: { type: 'string' }
+advisorName: { type: 'string' }
+advisorEmail: { type: 'string' }
+advisorPhone: { type: 'string' }
+stockBrokerage: { type: 'string' }
+fiscalSponsor: { type: 'integer' }
+
+
+Audit
+POST
+https://platform.engiven.com/api/admin/reports/audit
+Note: This will only show crypto and stock transactions
+(ie. “table” = “fundtransaction” or “table” = “stockgift”)
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+loginUser: { type: 'integer' }
+userFullName: { type: 'string' }
+userEmail: { type: 'string' }
+action: { type: 'string' }
+table: { type: 'string' }
+rowID: { type: 'string' }
+oldValues: { type: 'json' }
+newValues: { type: 'json' }
+description:  { type: 'string' }
+apiPartner: { type: 'integer' }
+apiPartnerName: { type: 'string' }
+NPO
+POST
+https://platform.engiven.com/api/admin/reports/npo
+
+
+Note: This will only show NPOs that are Approved or is under an Instant Partner or API Partner.
+Querying “updatedAt” should let you know a field has changed, though it could be a field that is not listed here (such as bank information)
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+npoName: { type: 'string' }
+EIN: { type: 'string' }
+affiliate: { type: 'integer' }
+affiliateName: { type: 'string' }
+apiPartner: { type: 'integer' }
+apiPartnerName: { type: 'string' }
+instantPartner: { type: 'integer' }
+instantPartnerName: { type: 'instantPartnerName' }
+websiteUrl: { type: 'string' }
+address: { type: 'string' }
+city: { type: 'string' }
+state: { type: 'string' }
+zipCode: { type: 'string' }
+countryOfOrigin: { type: 'string' }
+missionStatement: { type: 'string' }
+notificationEmail: { type: 'string' }
+verificationStatus: { type: 'string' }
+geminiBankConnectionStatus: { type: 'string' }
+fiscalSponsor: { type: 'integer' }
+Affiliate
+POST
+https://platform.engiven.com/api/admin/reports/affiliate
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+affiliateName: { type: 'string' }
+contactFirstName: { type: 'string' }
+contactLastName: { type: 'string' }
+contactEmail: { type: 'string' }
+contactPhone: { type: 'string' }
+API Partner
+POST
+https://platform.engiven.com/api/admin/reports/api-partner
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+uuid: { type: 'string' }
+name: { type: 'string' }
+apiKey: { type: 'string' }
+whitelistedIps: { type: 'array' }
+whitelistedDomains: { type: 'array' }
+webhookUrl: { type: 'string' }
+defaultFiscalSponsor: { type: 'integer' }
+defaultAPIVersion: { type: 'string' }
+cryptoFeeRate: { type: 'float' }
+stockFeeRate: { type: 'float' }
+partnerSplitRate: { type: 'float' }
+Instant Partner
+POST
+https://platform.engiven.com/api/admin/reports/instant-partner
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+name: { type: 'string' }
+cryptoFeeRate: { type: 'float' }
+stockFeeRate: { type: 'float' }
+partnerSplitRate: { type: 'float' }
+slug: { type: 'string', unique: true }
+notificationEmail: { type: 'string' }
+logoURL: { type: 'string' }
+Custody Liquidation
+POST
+https://platform.engiven.com/api/admin/reports/custody-liquidation
+
+
+Fields
+id: { type: 'integer', primaryKey: true }
+createdAt: { type: 'datetime' }
+updatedAt: { type: 'datetime' }
+npo: { type: 'integer' }
+fromAccount: { type: 'string' }
+toAccount: { type: 'string' }
+fee: { type: 'string' }
+status: { type: 'string' }
+currency: { type: 'string' }
+amount: { type: 'string' }
+withdrawalId: { type: 'string' }
+usdValueAtConfirmation: { type: 'string' }
+usdValueForNpo: { type: 'string' }
+statusFromAdmin: { type: 'string' }
+achReferenceNumber: { type: 'string' }
+achDateEntered: { type: 'datetime' }
+confirmedTimeStamp: { type: 'datetime' }
+
+
+
+
+
+
+________________
+
+
+
+
+
+
+Request Body
+Note: All queries are case-insensitive
+Key Pairs
+A key pair can be used to search records for values matching exactly what is specified. 
+
+
+{
+    “donorName”: “Faith Kim”
+}
+
+
+
+You can search for multiple attributes. All attributes must match exactly (unless also using the modifiers described below).
+
+
+{
+    “donorName”: “Faith Kim”,
+    “npoName”: “My Church”
+}
+
+
+
+In Pairs
+Provide an array to find records whose value for this attribute exactly matches any of the specified search terms
+
+
+
+
+{
+    “donorName”: [ “Faith” , “Nathan” ]
+}
+
+
+
+Or Pairs
+Use the “or” modifier to match any of the nested rulesets you specify as an array of query pairs. For records to match an or query, they must match at least one of the specified query pairs in the or array.
+
+
+{
+    “or” : [
+        { “donorName”: “Faith” },
+        { “donorName”: “Nathan” },
+        { “npoName”: “Test Org” },
+    ]
+}
+
+( The above means search for records that have “Faith” as donorName, OR have “Nathan” as donorName, OR has “Test Org” as the npoName )
+
+
+Modified Pairs
+Modified pairs are useful when a strict equality check wouldn't work.
+
+
+{
+    “donorName”: { “contains”: “Faith” }
+}
+
+
+
+List Of Modifiers
+* “<” , “>” , “<=” , “>=”  will only work for dates. Currently in our database numeric amounts are stored as strings, so comparisons will not work as expected
+* Dates are stored in UTC time, so you will need to make the correct adjustments to compare by Pacific Time. 
+Refer to “<” for examples
+
+
+“<”   /   “lessThan”
+
+
+{
+    “transactionConfirmedTimeStamp”: { “<”: “2026-01-01” }
+}
+
+
+
+
+
+Or
+
+
+{
+    “transactionConfirmedTimeStamp”: {
+        “<”: “2025-01-01T08:00:00.000Z”
+    }
+}
+
+
+
+Or, if using Javascript 
+
+
+{
+    “transactionConfirmedTimeStamp”: {
+        “<”: new Date('2026-01-01T00:00:00-08:00')
+    }
+}
+
+“<=”  /  “lessThanOrEqual”
+
+
+{
+    “transactionConfirmedTimeStamp”: { “<=”: “2026-01-01” }
+}
+
+“>”  /  “greaterThan”
+
+
+{
+    “transactionConfirmedTimeStamp”: { “>”: “2026-01-01” }
+}
+
+“>=”  /  “greaterThanOrEqual”
+
+
+{
+    “transactionConfirmedTimeStamp”: { “>=”: “2026-01-01” }
+}
+
+** Ranges
+You can do range queries using the comparison operators
+
+
+{
+    “transactionConfirmedTimeStamp”: { 
+        “>=”:  “2025-01-01T08:00:00.000Z”,
+        “<”: “2026-01-01T08:00:00.000Z”
+    }
+}
+
+“!”  /  “not”
+Searches for records that are not equal to the value specified
+
+
+
+
+{
+    “npoName”: { “!”: “Test Org” }
+}
+
+
+
+You can also provide an array to find records that are not exact matches to any of the specified terms
+
+
+{
+   “donorName”: { “!”: [ “Faith” , “Nathan” ] }
+}
+
+“like”
+Searches for records using pattern matching using “%” to represent wildcard. For example:
+“%test” → ends with “test”
+“test%” → starts with “test”
+“%test%” → contains “test”
+“%test%match” → contains “test” and ends with “match”
+
+
+
+
+{
+    “npoName”: { “like”: “%Test” }
+}
+
+“contains”
+Searches for records that contains the given string
+
+
+{
+    “npoName”: { “contains”: “Test” }
+}
+
+“startsWith”
+Searches for records that starts with the given string
+
+
+{
+    “npoName”: { “startsWith”: “Test” }
+}
+
+“endsWith”
+Searches for records that ends with the given string
+
+
+{
+    “npoName”: { “endsWith”: “Test” }
+}
+
