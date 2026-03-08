@@ -18,6 +18,10 @@ const Header = ({ local_varaiable, ThemeChanger }: any) => {
   let { basePath } = nextConfig;
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const notificationDropdownRef = useRef<HTMLLIElement | null>(null);
+  const profileDropdownRef = useRef<HTMLLIElement | null>(null);
 
   const handleLogout = async () => {
     if (isLoggingOut) {
@@ -316,6 +320,24 @@ const Header = ({ local_varaiable, ThemeChanger }: any) => {
     return () => {
       // Clean up the event listener when the component unmounts
       document.removeEventListener("click", clickHandler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleProfileMenuClickOutside = (event: MouseEvent) => {
+      if (!notificationDropdownRef.current?.contains(event.target as Node)) {
+        setIsNotificationsOpen(false);
+      }
+
+      if (!profileDropdownRef.current?.contains(event.target as Node)) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleProfileMenuClickOutside);
+
+    return () => {
+      document.removeEventListener("mousedown", handleProfileMenuClickOutside);
     };
   }, []);
 
@@ -702,71 +724,75 @@ const Header = ({ local_varaiable, ThemeChanger }: any) => {
             {/* <!-- End::header-element --> */}
 
             {/* <!-- Start::header-element --> */}
-            <SpkDropdown Linkclass='header-link hs-dropdown-toggle ti-dropdown-toggle' Linktag={true} Customclass="header-element notifications-dropdown !hidden xl:!block hs-dropdown ti-dropdown [--auto-close:inside]" Navigate='#!'
-              Id='messageDropdown' Svg={true} SvgClass='w-6 h-6 header-link-icon' Badgetag={true} Badgecolor='primarytint2color' Badgeclass='header-icon-pulse rounded custom-header-icon-pulse pulse pulse-secondary' Custommenuclass='main-header-dropdown' SvgStroke="currentColor" Strokewidth="1.5" Svvgviewbox="0 0 24 24"
-              Svgicon='M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5' >
+            <li ref={notificationDropdownRef} className="header-element notifications-dropdown !hidden xl:!block relative">
+              <button
+                type="button"
+                id="messageDropdown"
+                className="header-link ti-dropdown-toggle"
+                aria-expanded={isNotificationsOpen}
+                aria-haspopup="menu"
+                aria-controls="header-notification-menu"
+                onClick={() => setIsNotificationsOpen((previous) => !previous)}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 header-link-icon" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" strokeLinejoin="round">
+                  <path strokeLinecap="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5" strokeWidth="1.5" />
+                </svg>
+                <span className="flex absolute h-5 w-5 -top-[0.25rem] end-0 -me-[0.6rem]">
+                  <SpkBadge variant="primarytint2color" customClass="header-icon-pulse rounded custom-header-icon-pulse pulse pulse-secondary"></SpkBadge>
+                </span>
+              </button>
 
-              {/* <!-- Start::header-link|dropdown-toggle --> */}
-
-              {/* <!-- End::header-link|dropdown-toggle --> */}
-              {/* <!-- Start::main-header-dropdown --> */}
-
-              <div className="p-4">
-                <div className="flex items-center justify-between">
-                  <p className="mb-0 text-[15px] font-medium">
-                    Notifications
-                  </p>
-                  <SpkBadge variant="secondary"
-                    customClass="text-white rounded-sm"
-                    id="notifiation-data"
-                  >
-                    {unreadCount} Unread
-                  </SpkBadge>
+              <ul
+                id="header-notification-menu"
+                className={`ti-dropdown-menu main-header-dropdown absolute end-0 z-50 w-[21rem] opacity-100 mt-0 ${isNotificationsOpen ? 'block' : 'hidden'}`}
+                aria-labelledby="messageDropdown"
+                role="menu"
+              >
+                <div className="p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="mb-0 text-[15px] font-medium">Notifications</p>
+                    <SpkBadge variant="secondary" customClass="text-white rounded-sm" id="notifiation-data">
+                      {unreadCount} Unread
+                    </SpkBadge>
+                  </div>
                 </div>
-              </div>
-              <div className="dropdown-divider"></div>
-              <SimpleBar className="list-none mb-0" id="header-notification-scroll">
-
-                {notifications.map((notification) => (
-                  <li className="ti-dropdown-item block" key={notification.id}>
-                    <div className="flex items-center">
-                      <div className="pe-2 leading-none">
-                        <span className="avatar avatar-md avatar-rounded bg-primary">
-                          {notification.src}
-                        </span>
-                      </div>
-                      <div className="grow flex items-center justify-between">
-                        <div>
-                          <p className="mb-0 font-medium">
-                            <Link scroll={false} href="/pages/chat">{notification.heading}</Link>
-                          </p>
-                          <div className="text-textmuted dark:text-textmuted/50 font-normal text-xs header-notification-text truncate">
-                            {notification.data}
+                <div className="dropdown-divider"></div>
+                <SimpleBar className="list-none mb-0" id="header-notification-scroll">
+                  {notifications.map((notification) => (
+                    <li className="ti-dropdown-item block" key={notification.id}>
+                      <div className="flex items-center">
+                        <div className="pe-2 leading-none">
+                          <span className="avatar avatar-md avatar-rounded bg-primary">{notification.src}</span>
+                        </div>
+                        <div className="grow flex items-center justify-between">
+                          <div>
+                            <p className="mb-0 font-medium">
+                              <Link scroll={false} href="/pages/chat" onClick={() => setIsNotificationsOpen(false)}>{notification.heading}</Link>
+                            </p>
+                            <div className="text-textmuted dark:text-textmuted/50 font-normal text-xs header-notification-text truncate">
+                              {notification.data}
+                            </div>
+                            <div className="font-normal text-[10px] text-textmuted dark:text-textmuted/50 op-8">
+                              {notification.data1}
+                            </div>
                           </div>
-                          <div className="font-normal text-[10px] text-textmuted dark:text-textmuted/50 op-8">
-                            {notification.data1}
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemove1(notification.id)}
+                              className="min-w-fit-content dropdown-item-close1"
+                            >
+                              <i className="ri-close-line"></i>
+                            </button>
                           </div>
                         </div>
-                        <div>
-                          <Link scroll={false} onClick={() => handleRemove1(notification.id)}
-                            aria-label="anchor"
-                            href="#!"
-                            className="min-w-fit-content dropdown-item-close1"
-                          >
-                            <i className="ri-close-line"></i>
-                          </Link>
-                        </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
-
-                
-
-              </SimpleBar>
-              <div className={`p-4 empty-header-item1 border-t ${notifications.length === 0 ? 'hidden' : 'block'}`}>
+                    </li>
+                  ))}
+                </SimpleBar>
+                <div className={`p-4 empty-header-item1 border-t ${notifications.length === 0 ? 'hidden' : 'block'}`}>
                   <div className="grid">
-                    <Link scroll={false} href="#!" className="ti-btn ti-btn-primary btn-wave">View All</Link>
+                    <Link scroll={false} href="#!" className="ti-btn ti-btn-primary btn-wave" onClick={() => setIsNotificationsOpen(false)}>View All</Link>
                   </div>
                 </div>
                 <div className={`p-[3rem] empty-item1 ${notifications.length === 0 ? 'block' : 'hidden'}`}>
@@ -777,9 +803,8 @@ const Header = ({ local_varaiable, ThemeChanger }: any) => {
                     <h6 className="font-medium mt-4">No New Notifications</h6>
                   </div>
                 </div>
-
-              {/* <!-- End::main-header-dropdown --> */}
-            </SpkDropdown>
+              </ul>
+            </li>
             {/* <!-- End::header-element --> */}
 
             {/* <!-- Start::header-element --> */}
@@ -829,95 +854,105 @@ const Header = ({ local_varaiable, ThemeChanger }: any) => {
             {/* <!-- End::header-element --> */}
 
             {/* <!-- Start::header-element --> */}
-            <SpkDropdown Customclass="header-element" Linktag={true} Navigate='#!' Linkclass='header-link hs-dropdown-toggle ti-dropdown-toggle' Id="mainHeaderProfile" Imagetag={true}
-              Imageclass='flex items-center avatar avatar-sm mb-0' Image={`${process.env.NODE_ENV === 'production' ? basePath : ''}/assets/images/faces/15.jpg`}
-              Custommenuclass='main-header-dropdown  pt-0 overflow-hidden header-profile-dropdown ' Menulabel='mainHeaderProfile'>
+            <li ref={profileDropdownRef} className="header-element relative">
+              <button
+                type="button"
+                id="mainHeaderProfile"
+                className="header-link ti-dropdown-toggle"
+                aria-expanded={isProfileMenuOpen}
+                aria-haspopup="menu"
+                aria-controls="main-header-profile-menu"
+                onClick={() => setIsProfileMenuOpen((previous) => !previous)}
+              >
+                <img
+                  src={`${process.env.NODE_ENV === 'production' ? basePath : ''}/assets/images/faces/15.jpg`}
+                  alt="Profile"
+                  className="flex items-center avatar avatar-sm mb-0"
+                />
+              </button>
 
-              {/* <!-- End::header-link|dropdown-toggle --> */}
-
-              <li>
-                <div className="ti-dropdown-item text-center border-b border-defaultborder dark:border-defaultborder/10 block">
-                  <span>Mr.Henry</span>
-                  <span className="block text-xs text-textmuted dark:text-textmuted/50">
-                    UI/UX Designer
-                  </span>
-                </div>
-              </li>
-              <li>
-                <Link scroll={false}
-                  className="ti-dropdown-item flex items-center"
-                  href="/pages/profile"
-                >
-                  <i className="fe fe-user p-1 rounded-full bg-primary/10 text-primary me-2 text-[1rem]"></i>
-                  Profile
-                </Link>
-              </li>
-              <li>
-                <Link scroll={false}
-                  className="ti-dropdown-item flex items-center"
-                  href="/pages/email/mail-app"
-                >
-                  <i className="fe fe-mail p-1 rounded-full bg-primary/10 text-primary me-2 text-[1rem]"></i>
-                  Mail Inbox
-                </Link>
-              </li>
-              <li>
-                <Link scroll={false}
-                  className="ti-dropdown-item flex items-center"
-                  href="/pages/file-manager"
-                >
-                  <i className="fe fe-database p-1 rounded-full bg-primary/10 text-primary klist me-2 text-[1rem]"></i>
-                  File Manager
-                  <SpkBadge variant="primarytint1color" customClass="text-white ms-auto text-[0.5625rem]">
-                    2
-                  </SpkBadge>
-                </Link>
-              </li>
-              <li>
-                <Link scroll={false}
-                  className="ti-dropdown-item flex items-center"
-                  href="/pages/email/mail-settings"
-                >
-                  <i className="fe fe-settings p-1 rounded-full bg-primary/10 text-primary ings me-2 text-[1rem]"></i>
-                  Settings
-                </Link>
-              </li>
-              <li className="border-t border-defaultborder dark:border-defaultborder/10 bg-light">
-                <Link scroll={false}
-                  className="ti-dropdown-item flex items-center"
-                  href="/pages/chat"
-                >
-                  <i className="fe fe-help-circle p-1 rounded-full bg-primary/10 text-primary set me-2 text-[1rem]"></i>
-                  Help
-                </Link>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  className="ti-dropdown-item flex items-center w-full text-start"
-                  onClick={handleLogout}
-                  disabled={isLoggingOut}
-                >
-                  <i className="fe fe-lock p-1 rounded-full bg-primary/10 text-primary ut me-2 text-[1rem]"></i>
-                  {isLoggingOut ? "Signing Out..." : "Log Out"}
-                </button>
-              </li>
-            </SpkDropdown>
-            {/* <!-- End::header-element --> */}
-
-            {/* <!-- Start::header-element --> */}
-            <li className="header-element">
-              {/* <!-- Start::header-link|switcher-icon --> */}
-              <Link href="#!" className="header-link switcher-icon" data-hs-overlay="#hs-overlay-switcher" aria-label="anchor">
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 header-link-icon" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"
-                  />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
-                </svg>
-              </Link>
-              {/* <!-- End::header-link|switcher-icon --> */}
+              <ul
+                id="main-header-profile-menu"
+                className={`ti-dropdown-menu main-header-dropdown pt-0 overflow-hidden header-profile-dropdown absolute end-0 z-50 opacity-100 mt-0 ${isProfileMenuOpen ? 'block' : 'hidden'}`}
+                aria-labelledby="mainHeaderProfile"
+                role="menu"
+              >
+                <li>
+                  <div className="ti-dropdown-item text-center border-b border-defaultborder dark:border-defaultborder/10 block">
+                    <span>Mr.Henry</span>
+                    <span className="block text-xs text-textmuted dark:text-textmuted/50">
+                      UI/UX Designer
+                    </span>
+                  </div>
+                </li>
+                <li>
+                  <Link scroll={false}
+                    className="ti-dropdown-item flex items-center"
+                    href="/pages/profile"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    <i className="fe fe-user p-1 rounded-full bg-primary/10 text-primary me-2 text-[1rem]"></i>
+                    Profile
+                  </Link>
+                </li>
+                <li>
+                  <Link scroll={false}
+                    className="ti-dropdown-item flex items-center"
+                    href="/pages/email/mail-app"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    <i className="fe fe-mail p-1 rounded-full bg-primary/10 text-primary me-2 text-[1rem]"></i>
+                    Mail Inbox
+                  </Link>
+                </li>
+                <li>
+                  <Link scroll={false}
+                    className="ti-dropdown-item flex items-center"
+                    href="/pages/file-manager"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    <i className="fe fe-database p-1 rounded-full bg-primary/10 text-primary klist me-2 text-[1rem]"></i>
+                    File Manager
+                    <SpkBadge variant="primarytint1color" customClass="text-white ms-auto text-[0.5625rem]">
+                      2
+                    </SpkBadge>
+                  </Link>
+                </li>
+                <li>
+                  <Link scroll={false}
+                    className="ti-dropdown-item flex items-center"
+                    href="/pages/email/mail-settings"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    <i className="fe fe-settings p-1 rounded-full bg-primary/10 text-primary ings me-2 text-[1rem]"></i>
+                    Settings
+                  </Link>
+                </li>
+                <li className="border-t border-defaultborder dark:border-defaultborder/10 bg-light">
+                  <Link scroll={false}
+                    className="ti-dropdown-item flex items-center"
+                    href="/pages/chat"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  >
+                    <i className="fe fe-help-circle p-1 rounded-full bg-primary/10 text-primary set me-2 text-[1rem]"></i>
+                    Help
+                  </Link>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    className="ti-dropdown-item flex items-center w-full text-start"
+                    onClick={handleLogout}
+                    disabled={isLoggingOut}
+                  >
+                    <i className="fe fe-lock p-1 rounded-full bg-primary/10 text-primary ut me-2 text-[1rem]"></i>
+                    {isLoggingOut ? "Signing Out..." : "Log Out"}
+                  </button>
+                </li>
+              </ul>
             </li>
             {/* <!-- End::header-element --> */}
+
           </ul>
           {/* <!-- End::header-content-right --> */}
         </div>

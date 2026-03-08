@@ -34,9 +34,6 @@ const nextConfig: NextConfig = {
     quietDeps: true, 
   },
   reactStrictMode: false, // Disable Strict Mode if necessary
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
 };
 
 export default nextConfig;

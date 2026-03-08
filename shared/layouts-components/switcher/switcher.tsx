@@ -10,21 +10,39 @@ import Link from "next/link"
 
 const Switcher = ({ local_varaiable, ThemeChanger }: any) => {
   const theme = useContext(Initialload);
+  const [isOpen, setIsOpen] = React.useState(false);
   useEffect(() => {
     switcherdata.LocalStorageBackup(ThemeChanger, theme.setpageloading);
   
   }, []);
 
+  useEffect(() => {
+    const handleToggle = (event: Event) => {
+      const customEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsOpen((previous) => customEvent.detail?.open ?? !previous);
+    };
+
+    const handleClose = () => setIsOpen(false);
+
+    window.addEventListener('toggle-switcher-overlay', handleToggle as EventListener);
+    window.addEventListener('close-switcher-overlay', handleClose);
+
+    return () => {
+      window.removeEventListener('toggle-switcher-overlay', handleToggle as EventListener);
+      window.removeEventListener('close-switcher-overlay', handleClose);
+    };
+  }, []);
+
   return (
     <Fragment>
-      <div id="hs-overlay-switcher" className="hs-overlay hidden ti-offcanvas ti-offcanvas-right" tabIndex={-1}>
+      <div id="hs-overlay-switcher" className={`hs-overlay ti-offcanvas ti-offcanvas-right ${isOpen ? 'open' : 'hidden'}`} tabIndex={-1}>
         <div className="ti-offcanvas-header z-10 relative">
           <h5 className="ti-offcanvas-title">
             Switcher
           </h5>
           <SpkButton buttontype="button"
             customClass="ti-btn flex-shrink-0 p-0 !mb-0  transition-none text-defaulttextcolor dark:text-defaulttextcolor/80 hover:text-gray-700 focus:ring-gray-400 focus:ring-offset-white  dark:hover:text-white/80 dark:focus:ring-white/10 dark:focus:ring-offset-white/10"
-            Overlay="#hs-overlay-switcher">
+            onClick={() => setIsOpen(false)}>
             <span className="sr-only">Close modal</span>
             <i className="ri-close-circle-line leading-none text-lg"></i>
           </SpkButton>

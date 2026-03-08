@@ -13338,7 +13338,8 @@ ul.files-main-nav li div.filemanager-upgrade-storage img {
 }
 
 .embedded-breadcrumb:before {
-  @apply opacity-[0.7] before:content-[""];
+  @apply opacity-[0.7];
+  content: "";
 }
 
 .dark .embedded-breadcrumb:before {
