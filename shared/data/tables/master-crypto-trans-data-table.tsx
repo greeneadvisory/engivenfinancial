@@ -7,71 +7,12 @@ import SpkButton from "@/shared/@spk-reusable-components/uielements/spk-button";
 import SpkSpinner from "@/shared/@spk-reusable-components/uielements/spk-spinner";
 import { DEFAULT_PAGE_SIZE, STANDARD_PAGE_SIZE_OPTIONS } from "@/shared/lib/pagination";
 import { CryptoRecord, CryptoValue } from "@/shared/lib/engiven-crypto";
+import { CRYPTO_FIELDS } from "@/shared/lib/crypto-sync";
 import { fetchJsonWithClientCache } from "@/shared/lib/client-fetch-cache";
 
 const DataTable = dynamic(() => import("react-data-table-component"), { ssr: false });
 
 type TableCryptoRecord = CryptoRecord & { __rowId: string };
-
-const CRYPTO_FIELDS = [
-  "id",
-  "batchTransactionNumber",
-  "createdAt",
-  "updatedAt",
-  "npo",
-  "npoName",
-  "EIN",
-  "guideStarNPO",
-  "guideStarName",
-  "guideStarEIN",
-  "apiPartner",
-  "apiPartnerName",
-  "instantPartner",
-  "instantPartnerName",
-  "affiliate",
-  "affiliateName",
-  "toAddress",
-  "destinationTag",
-  "donorName",
-  "donorPhone",
-  "donorAddress1",
-  "donorAddress2",
-  "donorCity",
-  "donorState",
-  "donorZipCode",
-  "donorCountry",
-  "donorMemo",
-  "notes",
-  "transactionHash",
-  "transactionPromisedTimeStamp",
-  "transactionConfirmedTimeStamp",
-  "transactionExpiredTimeStamp",
-  "transactionStatus",
-  "isCustody",
-  "pledgedAmount",
-  "amount",
-  "custodyAmount",
-  "custodyDepositFee",
-  "currency",
-  "currencyName",
-  "usdValueAtConfirmation",
-  "usdValueForNpo",
-  "statusFromAdmin",
-  "achDateEntered",
-  "achReferenceNumber",
-  "fiscalSponsor",
-  "statusFromFiscalSponsor",
-  "statusNoteFiscalSponsor",
-  "achDateEnteredFiscalSponsor",
-  "achReferenceNumberFiscalSponsor",
-  "geminiFee",
-  "anonymousToBeneficiary",
-  "customDonor",
-  "customDonorName",
-  "customDonorEmail",
-  "customDonorCryptoFeeRate",
-  "customDonorFiscalSponsorFee",
-] as const;
 
 const FILTER_FIELDS = [
   { key: "id", label: "Transaction ID" },

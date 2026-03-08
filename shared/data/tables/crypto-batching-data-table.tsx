@@ -220,6 +220,19 @@ const withRowIds = (rows: BatchableRecord[]) =>
     __rowId: String(record.id ?? `crypto-batch-${index}`),
   }));
 
+const haveSameSelectedRows = (left: BatchableRecord[], right: BatchableRecord[]) => {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftIds = new Set(left.map((row) => getTransactionId(row)).filter((id) => id.length > 0));
+  if (leftIds.size !== right.length) {
+    return false;
+  }
+
+  return right.every((row) => leftIds.has(getTransactionId(row)));
+};
+
 const isBatchedRecord = (row: BatchableRecord) =>
   formatCryptoValue(row.batchTransactionNumber ?? null).trim().length > 0;
 
@@ -567,6 +580,7 @@ const CryptoBatchingDataTable = () => {
   const [rowsPerPage, setRowsPerPage] = React.useState<number>(DEFAULT_PAGE_SIZE);
   const [selectedRows, setSelectedRows] = React.useState<BatchableRecord[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isSelectingAllRows, setIsSelectingAllRows] = React.useState(false);
   const [isSavingBatch, setIsSavingBatch] = React.useState(false);
   const [isAcceptingRows, setIsAcceptingRows] = React.useState(false);
   const [isUnbatchingRows, setIsUnbatchingRows] = React.useState(false);
@@ -603,10 +617,21 @@ const CryptoBatchingDataTable = () => {
   );
   const [widthInputDrafts, setWidthInputDrafts] = React.useState<Partial<Record<BatchingFieldKey, string>>>({});
   const tableContainerRef = React.useRef<HTMLSpanElement | null>(null);
+  const selectAllCheckboxRef = React.useRef<HTMLInputElement | null>(null);
+  const allLoadedRecordsRef = React.useRef<BatchableRecord[]>([]);
+  const hasLoadedAllRecordsRef = React.useRef(false);
   const backgroundLoadRequestRef = React.useRef(0);
   const hasLoadedServerTableSettingsRef = React.useRef(false);
   const saveTableSettingsTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [availableTableWidth, setAvailableTableWidth] = React.useState(0);
+
+  React.useEffect(() => {
+    allLoadedRecordsRef.current = allLoadedRecords;
+  }, [allLoadedRecords]);
+
+  React.useEffect(() => {
+    hasLoadedAllRecordsRef.current = hasLoadedAllRecords;
+  }, [hasLoadedAllRecords]);
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -763,6 +788,24 @@ const CryptoBatchingDataTable = () => {
     [selectedRows]
   );
 
+  const selectedTransactionIds = React.useMemo(
+    () => new Set(selectedRows.map((row) => getTransactionId(row)).filter((id) => id.length > 0)),
+    [selectedRows]
+  );
+  const allFilteredSelected = totalRows > 0 && selectedTransactionIds.size === totalRows;
+  const someFilteredSelected = selectedTransactionIds.size > 0 && !allFilteredSelected;
+
+  const isRowSelected = React.useCallback(
+    (row: unknown) => selectedTransactionIds.has(getTransactionId(row as BatchableRecord)),
+    [selectedTransactionIds]
+  );
+
+  React.useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = someFilteredSelected;
+    }
+  }, [someFilteredSelected]);
+
   const canHide =
     selectedVisibleRows.length > 0 &&
     selectedHiddenRows.length === 0 &&
@@ -783,7 +826,7 @@ const CryptoBatchingDataTable = () => {
   const canToggleHide = canHide || canUnhide;
   const canToggleReview = canAccept || canRevoke;
   const canToggleBatch = canBatch || canUnbatch;
-  const isAnyActionBusy = isSavingBatch || isAcceptingRows || isUnbatchingRows || isHidingRows;
+  const isAnyActionBusy = isSelectingAllRows || isSavingBatch || isAcceptingRows || isUnbatchingRows || isHidingRows;
 
   const selectedTotals = React.useMemo(() => {
     const grossTotal = selectedRows.reduce(
@@ -1177,10 +1220,55 @@ const CryptoBatchingDataTable = () => {
     });
   };
 
-  const clearSelection = () => {
+  const clearSelection = React.useCallback(() => {
     setSelectedRows([]);
     setToggleCleared((previous) => !previous);
-  };
+  }, []);
+
+  const loadAllFilteredRecords = React.useCallback(async () => {
+    const cachedRecords = allLoadedRecordsRef.current;
+
+    if (hasLoadedAllRecordsRef.current && cachedRecords.length >= totalRows) {
+      return cachedRecords;
+    }
+
+    const pageSize = Math.max(rowsPerPage, 250);
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    const mergedById = new Map<string, BatchableRecord>(
+      cachedRecords.map((record) => [getTransactionId(record), record])
+    );
+
+    for (let page = 1; page <= totalPages; page += 1) {
+      const searchParams = new URLSearchParams({
+        page: String(page),
+        perPage: String(pageSize),
+        showBatched: "1",
+        showHidden: showHiddenRows ? "1" : "0",
+      });
+
+      const result = await fetchJsonWithClientCache<any>(`/api/crypto/batches/transactions?${searchParams.toString()}`, {
+        ttlMs: 60000,
+        init: { method: "GET" },
+      });
+
+      if (!result.ok) {
+        throw new Error(result.payload?.error ?? "Failed to load all crypto transactions.");
+      }
+
+      const nextRecords = Array.isArray(result.payload?.records) ? result.payload.records : [];
+      withRowIds(nextRecords as BatchableRecord[]).forEach((record) => {
+        const transactionId = getTransactionId(record);
+        if (transactionId) {
+          mergedById.set(transactionId, record);
+        }
+      });
+    }
+
+    const mergedRecords = Array.from(mergedById.values()).sort(compareLoadedRecords);
+    setAllLoadedRecords(mergedRecords);
+    setHasLoadedAllRecords(true);
+    return mergedRecords;
+  }, [rowsPerPage, showHiddenRows, totalRows]);
 
   const restoreRecordsByTransactionId = React.useCallback((snapshots: BatchableRecord[]) => {
     if (snapshots.length === 0) {
@@ -1268,9 +1356,11 @@ const CryptoBatchingDataTable = () => {
     try {
       const sliceStart = (currentPage - 1) * rowsPerPage;
       const sliceEnd = sliceStart + rowsPerPage;
+      const cachedRecords = allLoadedRecordsRef.current;
+      const hasLoadedAllCachedRecords = hasLoadedAllRecordsRef.current;
 
-      if (allLoadedRecords.length >= sliceEnd || (hasLoadedAllRecords && allLoadedRecords.length > sliceStart)) {
-        setRecords(allLoadedRecords.slice(sliceStart, sliceEnd));
+      if (cachedRecords.length >= sliceEnd || (hasLoadedAllCachedRecords && cachedRecords.length > sliceStart)) {
+        setRecords(cachedRecords.slice(sliceStart, sliceEnd));
         setIsLoading(false);
         return;
       }
@@ -1319,7 +1409,7 @@ const CryptoBatchingDataTable = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [allLoadedRecords, currentPage, hasLoadedAllRecords, mergeLoadedRecords, rowsPerPage, showHiddenRows]);
+  }, [currentPage, mergeLoadedRecords, rowsPerPage, showHiddenRows]);
 
   React.useEffect(() => {
     loadRecords();
@@ -1334,13 +1424,43 @@ const CryptoBatchingDataTable = () => {
 
   React.useEffect(() => {
     clearSelection();
-  }, [currentPage, rowsPerPage, showHiddenRows]);
+  }, [clearSelection, showHiddenRows]);
 
   React.useEffect(() => {
     setAllLoadedRecords([]);
     setHasLoadedAllRecords(false);
     backgroundLoadRequestRef.current += 1;
   }, [showHiddenRows]);
+
+  const handleSelectedRowsChange = React.useCallback(
+    (state: { allSelected: boolean; selectedCount: number; selectedRows: unknown[] }) => {
+      const nextSelectedRows = state.selectedRows as BatchableRecord[];
+      setSelectedRows((previous) =>
+        haveSameSelectedRows(previous, nextSelectedRows) ? previous : nextSelectedRows
+      );
+    },
+    []
+  );
+
+  const toggleSelectAllRows = React.useCallback(async () => {
+    if (allFilteredSelected) {
+      clearSelection();
+      return;
+    }
+
+    try {
+      setIsSelectingAllRows(true);
+      setErrorMessage("");
+      const allFilteredRecords = await loadAllFilteredRecords();
+      setSelectedRows((previous) =>
+        haveSameSelectedRows(previous, allFilteredRecords) ? previous : allFilteredRecords
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Failed to select all crypto transactions.");
+    } finally {
+      setIsSelectingAllRows(false);
+    }
+  }, [allFilteredSelected, clearSelection, loadAllFilteredRecords]);
 
   React.useEffect(() => {
     if (totalRows <= allLoadedRecords.length || totalRows === 0) {
@@ -1733,6 +1853,19 @@ const CryptoBatchingDataTable = () => {
         <div className="me-auto flex flex-wrap items-center gap-4">
           <label className="inline-flex items-center gap-2 cursor-pointer select-none">
             <input
+              ref={selectAllCheckboxRef}
+              type="checkbox"
+              className={CHECKBOX_INPUT_CLASS}
+              checked={allFilteredSelected}
+              onChange={() => {
+                void toggleSelectAllRows();
+              }}
+              disabled={isAnyActionBusy || totalRows === 0}
+            />
+            <span>Select All</span>
+          </label>
+          <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+            <input
               type="checkbox"
               className={CHECKBOX_INPUT_CLASS}
               checked={showHiddenRows}
@@ -1808,13 +1941,17 @@ const CryptoBatchingDataTable = () => {
           setSortDirection(direction);
         }}
         selectableRows
-        onSelectedRowsChange={(state: { selectedRows: unknown[] }) =>
-          setSelectedRows(state.selectedRows as BatchableRecord[])
-        }
+        selectableRowsNoSelectAll
+        selectableRowSelected={isRowSelected}
+        onSelectedRowsChange={handleSelectedRowsChange}
         clearSelectedRows={toggleCleared}
         conditionalRowStyles={conditionalRowStyles as any}
         pagination
         paginationServer
+        paginationServerOptions={{
+          persistSelectedOnPageChange: true,
+          persistSelectedOnSort: true,
+        }}
         paginationComponent={paginationComponent as any}
         paginationDefaultPage={DEFAULT_PAGE}
         paginationResetDefaultPage={paginationResetToggle}

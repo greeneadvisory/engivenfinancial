@@ -81,11 +81,18 @@ export type SupabaseMasterNpoRow = {
   fiscal_sponsor: string | null;
 };
 
-export type SupabaseCryptoWorkflowRow = {
+export type SupabaseMasterCryptoRow = {
   transaction_id: string;
   raw_record: Record<string, string | number | boolean | null> | null;
+  transaction_confirmed_timestamp: string | null;
   created_at_source: string | null;
   updated_at_source: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SupabaseCryptoWorkflowDonationRow = {
+  transaction_id: string;
   batch_transaction_number: string | null;
   batch_name: string | null;
   batch_assigned_at: string | null;
@@ -128,11 +135,18 @@ const MASTER_NPO_SELECT_FIELDS = [
   "fiscal_sponsor",
 ].join(",");
 
-const CRYPTO_WORKFLOW_SELECT_FIELDS = [
+const MASTER_CRYPTO_SELECT_FIELDS = [
   "transaction_id",
   "raw_record",
+  "transaction_confirmed_timestamp",
   "created_at_source",
   "updated_at_source",
+  "created_at",
+  "updated_at",
+].join(",");
+
+const CRYPTO_WORKFLOW_DONATION_SELECT_FIELDS = [
+  "transaction_id",
   "batch_transaction_number",
   "batch_name",
   "batch_assigned_at",
@@ -241,15 +255,15 @@ export async function insertChangeLog(rows: Record<string, unknown>[]) {
   });
 }
 
-export async function getStoredCryptoWorkflowRecords() {
+export async function getStoredMasterCryptoRecords() {
   const pageSize = 1000;
   let offset = 0;
-  const allRows: SupabaseCryptoWorkflowRow[] = [];
+  const allRows: SupabaseMasterCryptoRow[] = [];
 
   while (true) {
-    const page = await supabaseRestRequest<SupabaseCryptoWorkflowRow[]>("crypto_workflow_records", {
+    const page = await supabaseRestRequest<SupabaseMasterCryptoRow[]>("master_crypto_records", {
       query: {
-        select: CRYPTO_WORKFLOW_SELECT_FIELDS,
+        select: MASTER_CRYPTO_SELECT_FIELDS,
         order: "transaction_id.asc",
         limit: String(pageSize),
         offset: String(offset),
@@ -272,29 +286,19 @@ export async function getStoredCryptoWorkflowRecords() {
   return allRows;
 }
 
-export async function getStoredCryptoWorkflowRecordsPage(options: {
+export async function getStoredMasterCryptoRecordsPage(options: {
   offset: number;
   limit: number;
-  includeBatched?: boolean;
-  includeHidden?: boolean;
 }) {
   const { url, secretKey } = getSupabaseConfig();
   const params = new URLSearchParams({
-    select: CRYPTO_WORKFLOW_SELECT_FIELDS,
-    order: "created_at_source.desc.nullslast,transaction_id.asc",
+    select: MASTER_CRYPTO_SELECT_FIELDS,
+    order: "transaction_confirmed_timestamp.desc.nullslast,created_at_source.desc.nullslast,transaction_id.asc",
     limit: String(options.limit),
     offset: String(options.offset),
   });
 
-  if (!options.includeBatched) {
-    params.set("batch_transaction_number", "is.null");
-  }
-
-  if (!options.includeHidden) {
-    params.set("hidden_at", "is.null");
-  }
-
-  const response = await fetch(`${url}/rest/v1/crypto_workflow_records?${params.toString()}`, {
+  const response = await fetch(`${url}/rest/v1/master_crypto_records?${params.toString()}`, {
     method: "GET",
     headers: {
       apikey: secretKey,
@@ -313,7 +317,88 @@ export async function getStoredCryptoWorkflowRecordsPage(options: {
     throw new Error(message);
   }
 
-  const rows = Array.isArray(payload) ? (payload as SupabaseCryptoWorkflowRow[]) : [];
+  const rows = Array.isArray(payload) ? (payload as SupabaseMasterCryptoRow[]) : [];
+  const totalCount = getTotalCountFromContentRange(response.headers.get("content-range"), rows.length);
+
+  return {
+    rows,
+    totalCount,
+  };
+}
+
+export async function getStoredCryptoWorkflowDonations() {
+  const pageSize = 1000;
+  let offset = 0;
+  const allRows: SupabaseCryptoWorkflowDonationRow[] = [];
+
+  while (true) {
+    const page = await supabaseRestRequest<SupabaseCryptoWorkflowDonationRow[]>("crypto_workflow_donations", {
+      query: {
+        select: CRYPTO_WORKFLOW_DONATION_SELECT_FIELDS,
+        order: "transaction_id.asc",
+        limit: String(pageSize),
+        offset: String(offset),
+      },
+    });
+
+    if (!Array.isArray(page) || page.length === 0) {
+      break;
+    }
+
+    allRows.push(...page);
+
+    if (page.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  return allRows;
+}
+
+export async function getStoredCryptoWorkflowDonationsPage(options: {
+  offset: number;
+  limit: number;
+  includeBatched?: boolean;
+  includeHidden?: boolean;
+}) {
+  const { url, secretKey } = getSupabaseConfig();
+  const params = new URLSearchParams({
+    select: CRYPTO_WORKFLOW_DONATION_SELECT_FIELDS,
+    order: "transaction_id.asc",
+    limit: String(options.limit),
+    offset: String(options.offset),
+  });
+
+  if (!options.includeBatched) {
+    params.set("batch_transaction_number", "is.null");
+  }
+
+  if (!options.includeHidden) {
+    params.set("hidden_at", "is.null");
+  }
+
+  const response = await fetch(`${url}/rest/v1/crypto_workflow_donations?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      apikey: secretKey,
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/json",
+      Prefer: "count=exact",
+    },
+    cache: "no-store",
+  });
+
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : [];
+
+  if (!response.ok) {
+    const message = payload?.message || payload?.error || `Supabase request failed (${response.status}).`;
+    throw new Error(message);
+  }
+
+  const rows = Array.isArray(payload) ? (payload as SupabaseCryptoWorkflowDonationRow[]) : [];
   const totalCount = getTotalCountFromContentRange(response.headers.get("content-range"), rows.length);
 
   return {
@@ -333,15 +418,34 @@ const buildTransactionIdInFilter = (transactionIds: string[]) => {
 };
 
 export async function getStoredCryptoWorkflowRecordsByIds(transactionIds: string[]) {
+  return getStoredCryptoWorkflowDonationsByIds(transactionIds);
+}
+
+export async function getStoredMasterCryptoRecordsByIds(transactionIds: string[]) {
   const idFilter = buildTransactionIdInFilter(transactionIds);
 
   if (!idFilter) {
-    return [] as SupabaseCryptoWorkflowRow[];
+    return [] as SupabaseMasterCryptoRow[];
   }
 
-  return supabaseRestRequest<SupabaseCryptoWorkflowRow[]>("crypto_workflow_records", {
+  return supabaseRestRequest<SupabaseMasterCryptoRow[]>("master_crypto_records", {
     query: {
-      select: CRYPTO_WORKFLOW_SELECT_FIELDS,
+      select: MASTER_CRYPTO_SELECT_FIELDS,
+      transaction_id: idFilter,
+    },
+  });
+}
+
+export async function getStoredCryptoWorkflowDonationsByIds(transactionIds: string[]) {
+  const idFilter = buildTransactionIdInFilter(transactionIds);
+
+  if (!idFilter) {
+    return [] as SupabaseCryptoWorkflowDonationRow[];
+  }
+
+  return supabaseRestRequest<SupabaseCryptoWorkflowDonationRow[]>("crypto_workflow_donations", {
+    query: {
+      select: CRYPTO_WORKFLOW_DONATION_SELECT_FIELDS,
       transaction_id: idFilter,
     },
   });
@@ -361,7 +465,7 @@ export async function patchCryptoWorkflowRecordsByIds(
     return [];
   }
 
-  return supabaseRestRequest<SupabaseCryptoWorkflowRow[]>("crypto_workflow_records", {
+  return supabaseRestRequest<SupabaseCryptoWorkflowDonationRow[]>("crypto_workflow_donations", {
     method: "PATCH",
     query: {
       transaction_id: idFilter,
@@ -373,8 +477,8 @@ export async function patchCryptoWorkflowRecordsByIds(
 }
 
 export async function getLatestCryptoBatchNumber(prefix: string) {
-  const rows = await supabaseRestRequest<Array<Pick<SupabaseCryptoWorkflowRow, "batch_transaction_number">>>(
-    "crypto_workflow_records",
+  const rows = await supabaseRestRequest<Array<Pick<SupabaseCryptoWorkflowDonationRow, "batch_transaction_number">>>(
+    "crypto_workflow_donations",
     {
       query: {
         select: "batch_transaction_number",
@@ -416,12 +520,27 @@ export async function upsertUiPreference(preferenceKey: string, preferenceValue:
   });
 }
 
-export async function upsertCryptoWorkflowRecords(rows: Record<string, unknown>[]) {
+export async function upsertMasterCryptoRecords(rows: Record<string, unknown>[]) {
   if (rows.length === 0) {
     return [];
   }
 
-  return supabaseRestRequest<unknown>("crypto_workflow_records", {
+  return supabaseRestRequest<unknown>("master_crypto_records", {
+    method: "POST",
+    query: {
+      on_conflict: "transaction_id",
+    },
+    body: rows,
+    prefer: "resolution=merge-duplicates,return=representation",
+  });
+}
+
+export async function upsertCryptoWorkflowDonations(rows: Record<string, unknown>[]) {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  return supabaseRestRequest<unknown>("crypto_workflow_donations", {
     method: "POST",
     query: {
       on_conflict: "transaction_id",

@@ -58,10 +58,10 @@ This flow writes approved changes into `master_npo_records` and logs applied dif
 
 ### Crypto workflow setup
 
-1. Run [supabase/sql/crypto_workflow_records.sql](supabase/sql/crypto_workflow_records.sql) in the Supabase SQL Editor.
+1. Run [supabase/sql/crypto_master_workflow_tables.sql](supabase/sql/crypto_master_workflow_tables.sql) in the Supabase SQL Editor.
 2. Run [supabase/sql/ui_preferences.sql](supabase/sql/ui_preferences.sql) in the Supabase SQL Editor.
 
-This enables persistent crypto workflow state and server-stored table field settings.
+This creates `master_crypto_records` for the full crypto API payload, `crypto_workflow_donations` for workflow-only state, and server-stored table field settings.
 
 ### Pagination standard (for all future pages)
 
