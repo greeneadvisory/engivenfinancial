@@ -22,12 +22,26 @@ To load live NPO data in the Master NPO List page, create a `.env.local` file in
 
 ```bash
 ENGIVEN_ADMIN_API_KEY=your_admin_api_key_here
-SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
 SUPABASE_SECRET_KEY=your_supabase_secret_key
 ```
 
 Then restart the dev server.
+
+For hosted builds, add the same values in your deployment provider's environment settings and redeploy. The client-side login requires:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_publishable_key
+```
+
+Compatibility fallback is also supported if your host already uses:
+
+```bash
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_ANON_KEY=your_supabase_publishable_key
+```
 
 ### Master NPO sync (preview before save)
 
