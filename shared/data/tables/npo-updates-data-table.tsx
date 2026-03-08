@@ -241,7 +241,7 @@ const NpoUpdatesDataTable = () => {
       {previewError ? <p className="mb-3 text-danger">{previewError}</p> : null}
       {hasSupabaseEnvError ? (
         <div className="mb-3 rounded-sm border border-warning/30 bg-warning/10 px-3 py-2 text-[0.8125rem] text-warning">
-          Create a .env.local file in the project root with SUPABASE_URL and SUPABASE_SECRET_KEY, then restart the dev server.
+          Add NEXT_PUBLIC_SUPABASE_URL and either SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY to .env.local, then restart the dev server.
         </div>
       ) : null}
       {syncMessage ? <p className="mb-3 text-success">{syncMessage}</p> : null}
