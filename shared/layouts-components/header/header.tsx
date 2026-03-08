@@ -1,6 +1,7 @@
 "use client"
 import Link from "next/link";
 import React, { Fragment, useEffect, useRef, useState } from "react";
+import { getSupabaseAuthClient } from "@/shared/lib/supabase-auth-client";
 import { ThemeChanger, removeFromCart } from "@/shared/redux/action";
 import store from "@/shared/redux/store";
 import { connect, useDispatch, useSelector } from "react-redux";
@@ -10,10 +11,30 @@ import SpkBadge from "@/shared/@spk-reusable-components/uielements/spk-badge";
 import SpkDropdown from "@/shared/@spk-reusable-components/uielements/spk-dropdown";
 import nextConfig from "@/next.config";
 import SpkButton from "@/shared/@spk-reusable-components/uielements/spk-button";
+import { useRouter } from "next/navigation";
 
 const Header = ({ local_varaiable, ThemeChanger }: any) => {
 
   let { basePath } = nextConfig;
+  const router = useRouter();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    if (isLoggingOut) {
+      return;
+    }
+
+    try {
+      setIsLoggingOut(true);
+      const supabase = getSupabaseAuthClient();
+      await supabase.auth.signOut();
+    } catch {
+    } finally {
+      setIsLoggingOut(false);
+      router.replace("/");
+      router.refresh();
+    }
+  };
 
   //full screen
   const [fullScreen, setFullScreen] = useState(false);
@@ -871,13 +892,15 @@ const Header = ({ local_varaiable, ThemeChanger }: any) => {
                 </Link>
               </li>
               <li>
-                <Link scroll={false}
-                  className="ti-dropdown-item flex items-center"
-                  href="/authentication/sign-in/cover"
+                <button
+                  type="button"
+                  className="ti-dropdown-item flex items-center w-full text-start"
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
                 >
                   <i className="fe fe-lock p-1 rounded-full bg-primary/10 text-primary ut me-2 text-[1rem]"></i>
-                  Log Out
-                </Link>
+                  {isLoggingOut ? "Signing Out..." : "Log Out"}
+                </button>
               </li>
             </SpkDropdown>
             {/* <!-- End::header-element --> */}

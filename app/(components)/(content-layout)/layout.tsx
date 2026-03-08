@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import React, { Fragment } from 'react'
+import SupabaseSessionGuard from '@/shared/components/auth/supabase-session-guard';
 import Loader from '@/shared/layouts-components/loader/loader';
 
 const Header = dynamic(() => import('@/shared/layouts-components/header/header'), { ssr: false });
@@ -13,21 +14,23 @@ const Backtotop = dynamic(() => import('@/shared/layouts-components/backtotop/ba
 const Layout = ({ children }: { children: React.ReactNode }) => {
 
     return (
-        <Fragment>
-            <Switcher />
-            <Loader/>
-            <div className='page'>
-                <Header />
-                <Sidebar />
-                <div className='main-content app-content'>
-                    <div className='container-fluid'>
-                        {children}
+        <SupabaseSessionGuard>
+            <Fragment>
+                <Switcher />
+                <Loader/>
+                <div className='page'>
+                    <Header />
+                    <Sidebar />
+                    <div className='main-content app-content'>
+                        <div className='container-fluid'>
+                            {children}
+                        </div>
                     </div>
+                    <Footer />
                 </div>
-                <Footer />
-            </div>
-            <Backtotop />
-        </Fragment>
+                <Backtotop />
+            </Fragment>
+        </SupabaseSessionGuard>
     )
 
 }
