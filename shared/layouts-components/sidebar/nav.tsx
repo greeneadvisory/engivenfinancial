@@ -78,20 +78,6 @@ export const MENUITEMS: any = [
     icon: Chartsicon,
     children: [
       {
-        path: "/dashboard/crypto",
-        type: "link",
-        active: false,
-        selected: false,
-        title: "Overview",
-      },
-      {
-        path: "/crypto/master-crypto-trans",
-        type: "link",
-        active: false,
-        selected: false,
-        title: "Master Crypto Trans",
-      },
-      {
         path: "/crypto/crypto-updates",
         type: "link",
         active: false,
@@ -105,13 +91,6 @@ export const MENUITEMS: any = [
         selected: false,
         title: "Crypto Donations",
       },
-      {
-        path: "/crypto/crypto-batches",
-        type: "link",
-        active: false,
-        selected: false,
-        title: "Crypto Batches",
-      },
     ],
   },
   {
@@ -122,13 +101,6 @@ export const MENUITEMS: any = [
     title: "Stock",
     icon: Tableicon,
     children: [
-      {
-        path: "/dashboard/stocks",
-        type: "link",
-        active: false,
-        selected: false,
-        title: "Overview",
-      },
       {
         path: "/stock/master-stock-trans",
         type: "link",
