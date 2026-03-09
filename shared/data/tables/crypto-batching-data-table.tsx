@@ -12,7 +12,11 @@ import { clearClientFetchCache, fetchJsonWithClientCache } from "@/shared/lib/cl
 
 const DataTable = dynamic(() => import("react-data-table-component"), { ssr: false });
 
-type BatchableRecord = CryptoRecord & { batchTransactionNumber?: string | null; __rowId: string };
+type BatchableRecord = CryptoRecord & {
+  batchTransactionNumber?: string | null;
+  __rowId: string;
+  __isSummaryRow?: boolean;
+};
 
 const DEFAULT_VISIBLE_ORDER = [
   "statusFromAdmin",
@@ -31,6 +35,8 @@ const VIEW_ACTION_COLUMN_WIDTH = 72;
 const MAX_MANUAL_COLUMN_WIDTH = 220;
 const TABLE_WIDTH_GUTTER = 28;
 const ALL_ROWS_PER_PAGE_VALUE = "all";
+const TABLE_CELL_HORIZONTAL_PADDING_PX = 16;
+const TABLE_SCROLL_HEIGHT = "calc(100vh - 260px)";
 
 const NPO_NAME_WRAP_SAMPLE = "CORPORACION PARA EL DESARROLLO DE ESCUELAS ALIANZAS";
 const NPO_NAME_MAX_CHARS = NPO_NAME_WRAP_SAMPLE.length;
@@ -518,20 +524,12 @@ const normalizeManualColumnWidths = (value: unknown) => {
   return next;
 };
 
-type FooterCell = {
-  key: string;
-  width: string;
-  align?: "left" | "right";
-  content: React.ReactNode;
-};
-
 type CryptoDonationsPaginationProps = {
   rowsPerPage: number;
   rowCount: number;
   currentPage: number;
   onChangePage: (page: number, totalRows: number) => void;
   onChangeRowsPerPage: (rowsPerPage: number, currentPage: number) => void;
-  footerCells: FooterCell[];
 };
 
 const CryptoDonationsPagination = ({
@@ -540,7 +538,6 @@ const CryptoDonationsPagination = ({
   currentPage,
   onChangePage,
   onChangeRowsPerPage,
-  footerCells,
 }: CryptoDonationsPaginationProps) => {
   const safeRowsPerPage = Math.max(rowsPerPage, 1);
   const pageCount = Math.max(1, Math.ceil(rowCount / safeRowsPerPage));
@@ -550,36 +547,7 @@ const CryptoDonationsPagination = ({
   const rowsPerPageValue = rowCount > 0 && safeRowsPerPage >= rowCount ? ALL_ROWS_PER_PAGE_VALUE : String(safeRowsPerPage);
 
   return (
-    <div>
-      <div className="overflow-x-auto bg-white dark:bg-defaultbackground/30">
-        <div className="flex min-w-fit items-stretch text-[0.8125rem] text-defaulttextcolor">
-          <div
-            className="shrink-0"
-            style={{ width: `${SELECTION_COLUMN_WIDTH}px`, minWidth: `${SELECTION_COLUMN_WIDTH}px` }}
-          ></div>
-          {footerCells.map((cell) => (
-            <div
-              key={cell.key}
-              className={`shrink-0 px-3 py-2 tabular-nums ${
-                cell.align === "right" ? "text-right" : "text-left"
-              }`}
-              style={{ width: cell.width, minWidth: cell.width, maxWidth: cell.width }}
-            >
-              <span
-                className={`block w-full font-semibold ${cell.align === "right" ? "text-right" : "text-left"}`}
-              >
-                {cell.content}
-              </span>
-            </div>
-          ))}
-          <div
-            className="shrink-0"
-            style={{ width: `${VIEW_ACTION_COLUMN_WIDTH}px`, minWidth: `${VIEW_ACTION_COLUMN_WIDTH}px` }}
-          ></div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 bg-white px-3 py-2 text-[0.8125rem] text-defaulttextcolor dark:bg-bodybg md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-2 bg-white px-3 py-2 text-[0.8125rem] text-defaulttextcolor dark:bg-bodybg md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2">
           <span>Rows per page:</span>
           <select
@@ -620,7 +588,6 @@ const CryptoDonationsPagination = ({
           >
             <i className="bi bi-chevron-right"></i>
           </button>
-        </div>
       </div>
     </div>
   );
@@ -645,6 +612,54 @@ const getDefaultDisplayNames = () => {
     initialNames[column.key] = column.defaultName;
   });
   return initialNames as Record<BatchingFieldKey, string>;
+};
+
+const compareSummaryRowsLast = (rowA: BatchableRecord, rowB: BatchableRecord) => {
+  if (rowA.__isSummaryRow && rowB.__isSummaryRow) {
+    return 0;
+  }
+
+  if (rowA.__isSummaryRow) {
+    return 1;
+  }
+
+  if (rowB.__isSummaryRow) {
+    return -1;
+  }
+
+  return null;
+};
+
+const compareRowsByColumnKey = (columnKey: string, rowA: BatchableRecord, rowB: BatchableRecord) => {
+  if (columnKey === "viewAction") {
+    return 0;
+  }
+
+  if (MONEY_FIELDS.has(columnKey)) {
+    const leftValue =
+      columnKey === "engivenFee"
+        ? calculateEngivenFee(rowA)
+        : toNumber(rowA[columnKey as keyof BatchableRecord] as string | number | boolean | null);
+    const rightValue =
+      columnKey === "engivenFee"
+        ? calculateEngivenFee(rowB)
+        : toNumber(rowB[columnKey as keyof BatchableRecord] as string | number | boolean | null);
+
+    return leftValue - rightValue;
+  }
+
+  return compareCellValues(
+    formatBatchingFieldValue(
+      columnKey,
+      rowA[columnKey as keyof BatchableRecord] as string | number | boolean | null,
+      rowA
+    ),
+    formatBatchingFieldValue(
+      columnKey,
+      rowB[columnKey as keyof BatchableRecord] as string | number | boolean | null,
+      rowB
+    )
+  );
 };
 
 const CryptoBatchingDataTable = () => {
@@ -676,6 +691,7 @@ const CryptoBatchingDataTable = () => {
   const [appliedSearchFieldValues, setAppliedSearchFieldValues] = React.useState<SearchFieldValues>({});
   const [searchStartDateDraft, setSearchStartDateDraft] = React.useState("");
   const [searchEndDateDraft, setSearchEndDateDraft] = React.useState("");
+  const [showHiddenRowsDraft, setShowHiddenRowsDraft] = React.useState(false);
   const [appliedSearchStartDate, setAppliedSearchStartDate] = React.useState("");
   const [appliedSearchEndDate, setAppliedSearchEndDate] = React.useState("");
   React.useEffect(() => {
@@ -1011,36 +1027,74 @@ const CryptoBatchingDataTable = () => {
     return widths;
   }, [availableTableWidth, baseColumnWidths, visibleDataColumns]);
 
-  const footerCells = React.useMemo<FooterCell[]>(() => {
-    return visibleDataColumns.map((column, index) => {
-      let content: React.ReactNode = null;
+  const summaryRow = React.useMemo<BatchableRecord | null>(() => {
+    if (selectedRows.length === 0) {
+      return null;
+    }
 
-      if (index === 0) {
-        content = selectedTotals.selectedCount > 0 ? `${selectedTotals.selectedCount} selected` : "";
+    return {
+      __rowId: "crypto-donations-summary-row",
+      __isSummaryRow: true,
+    } as BatchableRecord;
+  }, [selectedRows.length]);
+
+  const sortedVisibleRecords = React.useMemo(() => {
+    const nextRecords = [...visibleRecords];
+    const directionMultiplier = sortDirection === "asc" ? 1 : -1;
+
+    nextRecords.sort((left, right) => {
+      const result = compareRowsByColumnKey(sortField, left, right);
+      if (result !== 0) {
+        return result * directionMultiplier;
       }
 
-      if (column.key === "usdValueAtConfirmation") {
-        content = selectedTotals.gross;
-      }
-
-      if (column.key === "engivenFee") {
-        content = selectedTotals.engivenFee;
-      }
-
-      if (column.key === "usdValueForNpo") {
-        content = selectedTotals.payout;
-      }
-
-      return {
-        key: column.key,
-        width: columnWidths[column.key],
-        align: MONEY_FIELDS.has(column.key) ? "right" : "left",
-        content,
-      };
+      return compareLoadedRecords(left, right);
     });
-  }, [columnWidths, selectedTotals, visibleDataColumns]);
 
-  const conditionalRowStyles = React.useMemo(() => [], []);
+    return nextRecords;
+  }, [sortDirection, sortField, visibleRecords]);
+
+  const tableData = React.useMemo(
+    () => (summaryRow ? [...sortedVisibleRecords, summaryRow] : sortedVisibleRecords),
+    [sortedVisibleRecords, summaryRow]
+  );
+
+  const getSummaryCellContent = React.useCallback(
+    (columnKey: BatchingFieldKey, columnIndex: number) => {
+      if (columnIndex === 0) {
+        return selectedTotals.selectedCount > 0 ? `${selectedTotals.selectedCount} selected` : "";
+      }
+
+      if (columnKey === "usdValueAtConfirmation") {
+        return toNumber(selectedTotals.gross) !== 0 ? selectedTotals.gross : "";
+      }
+
+      if (columnKey === "engivenFee") {
+        return toNumber(selectedTotals.engivenFee) !== 0 ? selectedTotals.engivenFee : "";
+      }
+
+      if (columnKey === "usdValueForNpo") {
+        return toNumber(selectedTotals.payout) !== 0 ? selectedTotals.payout : "";
+      }
+
+      return "";
+    },
+    [selectedTotals]
+  );
+
+  const conditionalRowStyles = React.useMemo(
+    () => [
+      {
+        when: (row: BatchableRecord) => Boolean(row.__isSummaryRow),
+        style: {
+          backgroundColor: "rgba(98, 89, 202, 0.06)",
+          borderTop: "1px solid rgba(148, 163, 184, 0.25)",
+          fontWeight: 600,
+        },
+      },
+    ],
+    []
+  );
 
   const tableCustomStyles = React.useMemo(
     () => ({
@@ -1070,12 +1124,16 @@ const CryptoBatchingDataTable = () => {
         style: {
           borderRight: "0",
           borderInlineEnd: "0",
+          paddingLeft: `${TABLE_CELL_HORIZONTAL_PADDING_PX}px`,
+          paddingRight: `${TABLE_CELL_HORIZONTAL_PADDING_PX}px`,
         },
       },
       cells: {
         style: {
           borderRight: "0",
           borderInlineEnd: "0",
+          paddingLeft: `${TABLE_CELL_HORIZONTAL_PADDING_PX}px`,
+          paddingRight: `${TABLE_CELL_HORIZONTAL_PADDING_PX}px`,
         },
       },
       pagination: {
@@ -1083,6 +1141,11 @@ const CryptoBatchingDataTable = () => {
           border: "0",
           borderTopWidth: "0",
           backgroundColor: "transparent",
+        },
+      },
+      expanderRow: {
+        style: {
+          padding: 0,
         },
       },
     }),
@@ -1148,6 +1211,16 @@ const CryptoBatchingDataTable = () => {
       grow: 0,
       width: columnWidths[column.key],
       cell: (row: BatchableRecord) => {
+        if (row.__isSummaryRow) {
+          const summaryContent = getSummaryCellContent(column.key, visibleColumns.findIndex((item) => item.key === column.key));
+
+          if (MONEY_FIELDS.has(column.key)) {
+            return <div className="w-full text-right tabular-nums">{summaryContent}</div>;
+          }
+
+          return <div className="w-full">{summaryContent}</div>;
+        }
+
         const renderedValue = String(column.selector(row) ?? "");
 
         if (MONEY_FIELDS.has(column.key)) {
@@ -1174,33 +1247,7 @@ const CryptoBatchingDataTable = () => {
         wordBreak: MONEY_FIELDS.has(column.key) ? "normal" : "break-word",
         textAlign: MONEY_FIELDS.has(column.key) ? "right" : "left",
       },
-      sortFunction: (rowA: BatchableRecord, rowB: BatchableRecord) => {
-        if (MONEY_FIELDS.has(column.key)) {
-          const leftValue =
-            column.key === "engivenFee"
-              ? calculateEngivenFee(rowA)
-              : toNumber(rowA[column.key as keyof BatchableRecord] as string | number | boolean | null);
-          const rightValue =
-            column.key === "engivenFee"
-              ? calculateEngivenFee(rowB)
-              : toNumber(rowB[column.key as keyof BatchableRecord] as string | number | boolean | null);
-
-          return leftValue - rightValue;
-        }
-
-        return compareCellValues(
-          formatBatchingFieldValue(
-            column.key,
-            rowA[column.key as keyof BatchableRecord] as string | number | boolean | null,
-            rowA
-          ),
-          formatBatchingFieldValue(
-            column.key,
-            rowB[column.key as keyof BatchableRecord] as string | number | boolean | null,
-            rowB
-          )
-        );
-      },
+      sortFunction: (rowA: BatchableRecord, rowB: BatchableRecord) => compareRowsByColumnKey(column.key, rowA, rowB),
     })) as any[];
 
     renderedColumns.push({
@@ -1216,18 +1263,21 @@ const CryptoBatchingDataTable = () => {
         whiteSpace: "nowrap",
       },
       cell: (row: BatchableRecord) => (
-        <SpkButton
-          variant="light"
-          customClass="ti-btn py-1 px-2 !text-[0.75rem]"
-          onclickfunc={() => setViewRecord(row)}
-        >
-          View
-        </SpkButton>
+        row.__isSummaryRow ? null : (
+          <SpkButton
+            variant="light"
+            customClass="ti-btn py-1 px-2 !text-[0.75rem]"
+            onclickfunc={() => setViewRecord(row)}
+          >
+            View
+          </SpkButton>
+        )
       ),
+      sortFunction: () => 0,
     });
 
     return renderedColumns;
-  }, [columnWidths, displayNames, sortDirection, sortField, visibleDataColumns]);
+  }, [columnWidths, displayNames, getSummaryCellContent, sortDirection, sortField, visibleDataColumns]);
 
   const updateDisplayName = (key: BatchingFieldKey, value: string) => {
     setDisplayNames((previous) => ({
@@ -1335,8 +1385,9 @@ const CryptoBatchingDataTable = () => {
     setSearchFieldDrafts(normalizedAppliedSearchFieldValues);
     setSearchStartDateDraft(appliedSearchStartDate);
     setSearchEndDateDraft(appliedSearchEndDate);
+    setShowHiddenRowsDraft(showHiddenRows);
     setShowSearchModal(true);
-  }, [appliedSearchEndDate, appliedSearchStartDate, normalizedAppliedSearchFieldValues]);
+  }, [appliedSearchEndDate, appliedSearchStartDate, normalizedAppliedSearchFieldValues, showHiddenRows]);
 
   const closeSearchModal = React.useCallback(() => {
     setShowSearchModal(false);
@@ -1347,8 +1398,10 @@ const CryptoBatchingDataTable = () => {
     setAppliedSearchFieldValues({});
     setSearchStartDateDraft("");
     setSearchEndDateDraft("");
+    setShowHiddenRowsDraft(false);
     setAppliedSearchStartDate("");
     setAppliedSearchEndDate("");
+    setShowHiddenRows(false);
     setShowSearchModal(false);
     setErrorMessage("");
     clearSelection();
@@ -1367,11 +1420,12 @@ const CryptoBatchingDataTable = () => {
     setAppliedSearchFieldValues(normalizeSearchFieldValues(searchFieldDrafts));
     setAppliedSearchStartDate(searchStartDateDraft);
     setAppliedSearchEndDate(searchEndDateDraft);
+    setShowHiddenRows(showHiddenRowsDraft);
     setShowSearchModal(false);
     setErrorMessage("");
     clearSelection();
     resetToFirstPage();
-  }, [clearSelection, resetToFirstPage, searchEndDateDraft, searchFieldDrafts, searchStartDateDraft]);
+  }, [clearSelection, resetToFirstPage, searchEndDateDraft, searchFieldDrafts, searchStartDateDraft, showHiddenRowsDraft]);
 
   const restoreRecordsByTransactionId = React.useCallback((snapshots: BatchableRecord[]) => {
     if (snapshots.length === 0) {
@@ -2050,43 +2104,32 @@ const CryptoBatchingDataTable = () => {
       currentPage: number;
       onChangePage: (page: number, totalRows: number) => void;
       onChangeRowsPerPage: (rowsPerPage: number, currentPage: number) => void;
-    }) => <CryptoDonationsPagination {...paginationProps} footerCells={footerCells} />,
-    [footerCells]
+    }) => <CryptoDonationsPagination {...paginationProps} />,
+    []
   );
 
   return (
     <span ref={tableContainerRef} className="datatable block w-full">
       {isLoading || isAnyActionBusy ? <Loader active transparentBackground={!isLoading} /> : null}
 
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-2 text-[0.8125rem] text-defaulttextcolor">
-        <div className="me-auto flex flex-wrap items-center gap-4">
-          <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              className={CHECKBOX_INPUT_CLASS}
-              checked={showHiddenRows}
-              onChange={(event) => {
-                setShowHiddenRows(event.target.checked);
-                resetToFirstPage();
-              }}
-            />
-            <span>Show Hidden</span>
-            {hasActiveSearchFilters ? (
-              <span className="inline-flex items-center rounded-sm bg-primary/10 px-2 py-1 text-primary">
-                Search active
-              </span>
-            ) : null}
-          </label>
-
-          <SpkButton variant="light" customClass="ti-btn" onclickfunc={openSearchModal}>
-            Search
-          </SpkButton>
+      <div className="sticky top-0 z-20 mb-1 bg-white/95 pb-1 backdrop-blur dark:bg-bodybg/95">
+        <div className="flex flex-wrap items-center justify-end gap-2 text-[0.8125rem] text-defaulttextcolor">
+        <div className="me-auto flex min-w-0 items-center gap-3">
+          <h1 className="mb-0 text-lg font-medium text-defaulttextcolor">Crypto Donations</h1>
           {hasActiveSearchFilters ? (
-            <SpkButton variant="light" customClass="ti-btn" onclickfunc={clearSearchFilters}>
-              Clear Search
-            </SpkButton>
+            <span className="inline-flex items-center rounded-sm bg-primary/10 px-2 py-1 text-primary">
+              Search active
+            </span>
           ) : null}
         </div>
+        {hasActiveSearchFilters ? (
+          <SpkButton variant="light" customClass="ti-btn" onclickfunc={clearSearchFilters}>
+            Clear Search
+          </SpkButton>
+        ) : null}
+        <SpkButton variant="light" customClass="ti-btn" onclickfunc={openSearchModal}>
+          Search
+        </SpkButton>
         <SpkButton variant="light" customClass="ti-btn" onclickfunc={() => setShowFieldModal(true)}>
           Select Fields
         </SpkButton>
@@ -2132,6 +2175,7 @@ const CryptoBatchingDataTable = () => {
               ? "Saving Batch..."
               : `Batch${canBatch ? ` (${selectedUnbatchedRows.length})` : ""}`}
         </SpkButton>
+        </div>
       </div>
 
       {errorMessage ? <p className="mb-3 text-danger">{errorMessage}</p> : null}
@@ -2140,22 +2184,27 @@ const CryptoBatchingDataTable = () => {
         title
         noContextMenu
         columns={columns}
-        data={visibleRecords}
+        data={tableData}
         customStyles={tableCustomStyles}
         keyField="__rowId"
         sortIcon={<span className="hidden" />}
         defaultSortFieldId="transactionConfirmedTimeStamp"
         defaultSortAsc={false}
+        sortServer
         onSort={(selectedColumn: any, direction: "asc" | "desc") => {
           setSortField(selectedColumn?.field ?? "");
           setSortDirection(direction);
         }}
         selectableRows
+        selectableRowDisabled={(row: BatchableRecord) => Boolean(row.__isSummaryRow)}
         onSelectedRowsChange={(state: { selectedRows: unknown[] }) =>
-          setSelectedRows(state.selectedRows as BatchableRecord[])
+          setSelectedRows((state.selectedRows as BatchableRecord[]).filter((row) => !row.__isSummaryRow))
         }
         clearSelectedRows={toggleCleared}
         conditionalRowStyles={conditionalRowStyles as any}
+        fixedHeader
+        fixedHeaderScrollHeight={TABLE_SCROLL_HEIGHT}
+        persistTableHead
         pagination
         paginationServer
         paginationComponent={paginationComponent as any}
@@ -2237,6 +2286,18 @@ const CryptoBatchingDataTable = () => {
             <p className="mb-4 text-[0.8125rem] text-textmuted">
               Search across all transaction fields. Date filters apply to the transaction date and are inclusive.
             </p>
+
+            <div className="mb-4">
+              <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className={CHECKBOX_INPUT_CLASS}
+                  checked={showHiddenRowsDraft}
+                  onChange={(event) => setShowHiddenRowsDraft(event.target.checked)}
+                />
+                <span>Show Hidden</span>
+              </label>
+            </div>
 
             <div className="grid gap-6 md:grid-cols-2">
               <div>
