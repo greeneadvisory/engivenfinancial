@@ -30,6 +30,7 @@ const SELECTION_COLUMN_WIDTH = 40;
 const VIEW_ACTION_COLUMN_WIDTH = 72;
 const MAX_MANUAL_COLUMN_WIDTH = 220;
 const TABLE_WIDTH_GUTTER = 28;
+const ALL_ROWS_PER_PAGE_VALUE = "all";
 
 const NPO_NAME_WRAP_SAMPLE = "CORPORACION PARA EL DESARROLLO DE ESCUELAS ALIANZAS";
 const NPO_NAME_MAX_CHARS = NPO_NAME_WRAP_SAMPLE.length;
@@ -195,9 +196,12 @@ const getPartnerName = (row: BatchableRecord) => {
 
 const getTransactionId = (row: BatchableRecord) => formatCryptoValue(row.id).trim();
 
+const getRecordSortTimestamp = (row: BatchableRecord) =>
+  formatCryptoValue(row.transactionConfirmedTimeStamp ?? row.createdAt ?? null).trim();
+
 const compareLoadedRecords = (left: BatchableRecord, right: BatchableRecord) => {
-  const leftCreatedAt = formatCryptoValue(left.createdAt ?? null).trim();
-  const rightCreatedAt = formatCryptoValue(right.createdAt ?? null).trim();
+  const leftCreatedAt = getRecordSortTimestamp(left);
+  const rightCreatedAt = getRecordSortTimestamp(right);
 
   if (leftCreatedAt && rightCreatedAt) {
     const createdAtComparison = compareCellValues(rightCreatedAt, leftCreatedAt);
@@ -219,19 +223,6 @@ const withRowIds = (rows: BatchableRecord[]) =>
     ...record,
     __rowId: String(record.id ?? `crypto-batch-${index}`),
   }));
-
-const haveSameSelectedRows = (left: BatchableRecord[], right: BatchableRecord[]) => {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  const leftIds = new Set(left.map((row) => getTransactionId(row)).filter((id) => id.length > 0));
-  if (leftIds.size !== right.length) {
-    return false;
-  }
-
-  return right.every((row) => leftIds.has(getTransactionId(row)));
-};
 
 const isBatchedRecord = (row: BatchableRecord) =>
   formatCryptoValue(row.batchTransactionNumber ?? null).trim().length > 0;
@@ -272,6 +263,10 @@ const formatBatchingFieldValue = (field: string, value: string | number | boolea
 
   if (field === "partner" && row) {
     return getPartnerName(row);
+  }
+
+  if (field === "fiscalSponsor" && row && getPartnerName(row) === "Give to Any NPO") {
+    return "ENGV";
   }
 
   const formattedValue = formatCryptoValue(value);
@@ -363,6 +358,81 @@ type CryptoDonationsTableSettings = {
   hiddenFieldKeys?: unknown;
   displayNames?: unknown;
   manualColumnWidths?: unknown;
+};
+
+type SearchFieldKey = BatchingFieldKey | "transactionId" | "batchTransactionNumber";
+type SearchFieldValues = Partial<Record<SearchFieldKey, string>>;
+
+type SearchFieldDefinition = {
+  key: SearchFieldKey;
+  label: string;
+  type?: "text" | "select";
+};
+
+const LEFT_SEARCH_FIELDS: SearchFieldDefinition[] = [
+  { key: "transactionId", label: "Transaction ID" },
+  { key: "batchTransactionNumber", label: "Batch ID", type: "select" },
+  { key: "statusFromAdmin", label: "Status", type: "select" },
+  { key: "partner", label: "Partner", type: "select" },
+];
+
+const RIGHT_SEARCH_FIELDS: SearchFieldDefinition[] = [
+  { key: "EIN", label: "EIN" },
+  { key: "npoName", label: "NPO" },
+  { key: "donorName", label: "Donor Name" },
+  { key: "customDonorName", label: "Custom Donor Name" },
+];
+
+const normalizeSearchFieldValues = (value: SearchFieldValues) => {
+  const next: SearchFieldValues = {};
+
+  Object.entries(value).forEach(([key, rawValue]) => {
+    const trimmedValue = String(rawValue ?? "").trim();
+    if (!trimmedValue) {
+      return;
+    }
+
+    next[key as BatchingFieldKey] = trimmedValue;
+  });
+
+  return next;
+};
+
+const formatSearchFieldValue = (field: BatchingFieldKey, row: BatchableRecord) => {
+  if (field === "engivenFee") {
+    return formatMoney(calculateEngivenFee(row));
+  }
+
+  if (field === "transactionConfirmedTimeStamp") {
+    const rawValue = formatCryptoValue(row.transactionConfirmedTimeStamp ?? null).trim();
+    const formattedValue = formatPstDateTime(row.transactionConfirmedTimeStamp ?? null);
+    return `${rawValue} ${formattedValue}`.trim();
+  }
+
+  if (field === "usdValueAtConfirmation" || field === "usdValueForNpo") {
+    const rawValue = formatCryptoValue(row[field as keyof BatchableRecord] as string | number | boolean | null).trim();
+    const formattedValue = formatMoney(row[field as keyof BatchableRecord] as string | number | boolean | null);
+    return `${rawValue} ${formattedValue}`.trim();
+  }
+
+  return formatBatchingFieldValue(
+    field,
+    row[field as keyof BatchableRecord] as string | number | boolean | null,
+    row
+  );
+};
+
+const parseDateInputValue = (value: string) => {
+  if (!value) {
+    return null;
+  }
+
+  const [year, month, day] = value.split("-").map((part) => Number(part));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day);
 };
 
 const DEFAULT_MANUAL_COLUMN_WIDTHS: Partial<Record<BatchingFieldKey, number>> = {
@@ -477,6 +547,7 @@ const CryptoDonationsPagination = ({
   const boundedPage = Math.min(Math.max(currentPage, 1), pageCount);
   const fromRow = rowCount === 0 ? 0 : (boundedPage - 1) * safeRowsPerPage + 1;
   const toRow = rowCount === 0 ? 0 : Math.min(boundedPage * safeRowsPerPage, rowCount);
+  const rowsPerPageValue = rowCount > 0 && safeRowsPerPage >= rowCount ? ALL_ROWS_PER_PAGE_VALUE : String(safeRowsPerPage);
 
   return (
     <div>
@@ -513,14 +584,19 @@ const CryptoDonationsPagination = ({
           <span>Rows per page:</span>
           <select
             className="form-control !w-auto !min-w-[5rem] py-1"
-            value={safeRowsPerPage}
-            onChange={(event) => onChangeRowsPerPage(Number(event.target.value), boundedPage)}
+            value={rowsPerPageValue}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              const nextRowsPerPage = nextValue === ALL_ROWS_PER_PAGE_VALUE ? Math.max(rowCount, 1) : Number(nextValue);
+              onChangeRowsPerPage(nextRowsPerPage, boundedPage);
+            }}
           >
             {STANDARD_PAGE_SIZE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
+              <option key={option} value={String(option)}>
                 {option}
               </option>
             ))}
+            <option value={ALL_ROWS_PER_PAGE_VALUE}>ALL</option>
           </select>
         </div>
 
@@ -580,13 +656,13 @@ const CryptoBatchingDataTable = () => {
   const [rowsPerPage, setRowsPerPage] = React.useState<number>(DEFAULT_PAGE_SIZE);
   const [selectedRows, setSelectedRows] = React.useState<BatchableRecord[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [isSelectingAllRows, setIsSelectingAllRows] = React.useState(false);
   const [isSavingBatch, setIsSavingBatch] = React.useState(false);
   const [isAcceptingRows, setIsAcceptingRows] = React.useState(false);
   const [isUnbatchingRows, setIsUnbatchingRows] = React.useState(false);
   const [isHidingRows, setIsHidingRows] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState("");
   const [toggleCleared, setToggleCleared] = React.useState(false);
+  const [showSearchModal, setShowSearchModal] = React.useState(false);
   const [showFieldModal, setShowFieldModal] = React.useState(false);
   const [showBatchModal, setShowBatchModal] = React.useState(false);
   const [batchNameDraft, setBatchNameDraft] = React.useState("");
@@ -596,6 +672,12 @@ const CryptoBatchingDataTable = () => {
   const [sortField, setSortField] = React.useState<string>("transactionConfirmedTimeStamp");
   const [sortDirection, setSortDirection] = React.useState<"asc" | "desc">("desc");
   const [orderedFieldKeys, setOrderedFieldKeys] = React.useState<BatchingFieldKey[]>(getDefaultOrderedFieldKeys);
+  const [searchFieldDrafts, setSearchFieldDrafts] = React.useState<SearchFieldValues>({});
+  const [appliedSearchFieldValues, setAppliedSearchFieldValues] = React.useState<SearchFieldValues>({});
+  const [searchStartDateDraft, setSearchStartDateDraft] = React.useState("");
+  const [searchEndDateDraft, setSearchEndDateDraft] = React.useState("");
+  const [appliedSearchStartDate, setAppliedSearchStartDate] = React.useState("");
+  const [appliedSearchEndDate, setAppliedSearchEndDate] = React.useState("");
   React.useEffect(() => {
     setOrderedFieldKeys((previous) => {
       const npoIndex = previous.indexOf("npoName" as BatchingFieldKey);
@@ -617,13 +699,50 @@ const CryptoBatchingDataTable = () => {
   );
   const [widthInputDrafts, setWidthInputDrafts] = React.useState<Partial<Record<BatchingFieldKey, string>>>({});
   const tableContainerRef = React.useRef<HTMLSpanElement | null>(null);
-  const selectAllCheckboxRef = React.useRef<HTMLInputElement | null>(null);
   const allLoadedRecordsRef = React.useRef<BatchableRecord[]>([]);
   const hasLoadedAllRecordsRef = React.useRef(false);
   const backgroundLoadRequestRef = React.useRef(0);
   const hasLoadedServerTableSettingsRef = React.useRef(false);
   const saveTableSettingsTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [availableTableWidth, setAvailableTableWidth] = React.useState(0);
+  const normalizedAppliedSearchFieldValues = React.useMemo(
+    () => normalizeSearchFieldValues(appliedSearchFieldValues),
+    [appliedSearchFieldValues]
+  );
+  const hasActiveSearchFilters =
+    Object.keys(normalizedAppliedSearchFieldValues).length > 0 ||
+    appliedSearchStartDate.trim().length > 0 ||
+    appliedSearchEndDate.trim().length > 0;
+  const partnerSearchOptions = React.useMemo(() => {
+    const sourceRecords = allLoadedRecords.length > 0 ? allLoadedRecords : records;
+    return Array.from(
+      new Set(
+        sourceRecords
+          .map((record) => getPartnerName(record).trim())
+          .filter((value) => value.length > 0)
+      )
+    ).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
+  }, [allLoadedRecords, records]);
+  const batchIdSearchOptions = React.useMemo(() => {
+    const sourceRecords = allLoadedRecords.length > 0 ? allLoadedRecords : records;
+    return Array.from(
+      new Set(
+        sourceRecords
+          .map((record) => formatCryptoValue(record.batchTransactionNumber ?? null).trim())
+          .filter((value) => value.length > 0)
+      )
+    ).sort((left, right) => right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" }));
+  }, [allLoadedRecords, records]);
+  const statusSearchOptions = React.useMemo(() => {
+    const sourceRecords = allLoadedRecords.length > 0 ? allLoadedRecords : records;
+    return Array.from(
+      new Set(
+        sourceRecords
+          .map((record) => formatCryptoValue(record.statusFromAdmin ?? null).trim())
+          .filter((value) => value.length > 0)
+      )
+    ).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
+  }, [allLoadedRecords, records]);
 
   React.useEffect(() => {
     allLoadedRecordsRef.current = allLoadedRecords;
@@ -788,24 +907,6 @@ const CryptoBatchingDataTable = () => {
     [selectedRows]
   );
 
-  const selectedTransactionIds = React.useMemo(
-    () => new Set(selectedRows.map((row) => getTransactionId(row)).filter((id) => id.length > 0)),
-    [selectedRows]
-  );
-  const allFilteredSelected = totalRows > 0 && selectedTransactionIds.size === totalRows;
-  const someFilteredSelected = selectedTransactionIds.size > 0 && !allFilteredSelected;
-
-  const isRowSelected = React.useCallback(
-    (row: unknown) => selectedTransactionIds.has(getTransactionId(row as BatchableRecord)),
-    [selectedTransactionIds]
-  );
-
-  React.useEffect(() => {
-    if (selectAllCheckboxRef.current) {
-      selectAllCheckboxRef.current.indeterminate = someFilteredSelected;
-    }
-  }, [someFilteredSelected]);
-
   const canHide =
     selectedVisibleRows.length > 0 &&
     selectedHiddenRows.length === 0 &&
@@ -826,7 +927,7 @@ const CryptoBatchingDataTable = () => {
   const canToggleHide = canHide || canUnhide;
   const canToggleReview = canAccept || canRevoke;
   const canToggleBatch = canBatch || canUnbatch;
-  const isAnyActionBusy = isSelectingAllRows || isSavingBatch || isAcceptingRows || isUnbatchingRows || isHidingRows;
+  const isAnyActionBusy = isSavingBatch || isAcceptingRows || isUnbatchingRows || isHidingRows;
 
   const selectedTotals = React.useMemo(() => {
     const grossTotal = selectedRows.reduce(
@@ -1220,55 +1321,57 @@ const CryptoBatchingDataTable = () => {
     });
   };
 
-  const clearSelection = React.useCallback(() => {
+  const clearSelection = () => {
     setSelectedRows([]);
     setToggleCleared((previous) => !previous);
+  };
+
+  const resetToFirstPage = React.useCallback(() => {
+    setCurrentPage(DEFAULT_PAGE);
+    setPaginationResetToggle((previous) => !previous);
   }, []);
 
-  const loadAllFilteredRecords = React.useCallback(async () => {
-    const cachedRecords = allLoadedRecordsRef.current;
+  const openSearchModal = React.useCallback(() => {
+    setSearchFieldDrafts(normalizedAppliedSearchFieldValues);
+    setSearchStartDateDraft(appliedSearchStartDate);
+    setSearchEndDateDraft(appliedSearchEndDate);
+    setShowSearchModal(true);
+  }, [appliedSearchEndDate, appliedSearchStartDate, normalizedAppliedSearchFieldValues]);
 
-    if (hasLoadedAllRecordsRef.current && cachedRecords.length >= totalRows) {
-      return cachedRecords;
+  const closeSearchModal = React.useCallback(() => {
+    setShowSearchModal(false);
+  }, []);
+
+  const clearSearchFilters = React.useCallback(() => {
+    setSearchFieldDrafts({});
+    setAppliedSearchFieldValues({});
+    setSearchStartDateDraft("");
+    setSearchEndDateDraft("");
+    setAppliedSearchStartDate("");
+    setAppliedSearchEndDate("");
+    setShowSearchModal(false);
+    setErrorMessage("");
+    clearSelection();
+    if (hasLoadedAllRecordsRef.current) {
+      setTotalRows(allLoadedRecordsRef.current.length);
+    }
+    resetToFirstPage();
+  }, [resetToFirstPage]);
+
+  const applySearchFilters = React.useCallback(() => {
+    if (searchStartDateDraft && searchEndDateDraft && searchStartDateDraft > searchEndDateDraft) {
+      setErrorMessage("Beginning date must be on or before ending date.");
+      return;
     }
 
-    const pageSize = Math.max(rowsPerPage, 250);
-    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
-    const mergedById = new Map<string, BatchableRecord>(
-      cachedRecords.map((record) => [getTransactionId(record), record])
-    );
-
-    for (let page = 1; page <= totalPages; page += 1) {
-      const searchParams = new URLSearchParams({
-        page: String(page),
-        perPage: String(pageSize),
-        showBatched: "1",
-        showHidden: showHiddenRows ? "1" : "0",
-      });
-
-      const result = await fetchJsonWithClientCache<any>(`/api/crypto/batches/transactions?${searchParams.toString()}`, {
-        ttlMs: 60000,
-        init: { method: "GET" },
-      });
-
-      if (!result.ok) {
-        throw new Error(result.payload?.error ?? "Failed to load all crypto transactions.");
-      }
-
-      const nextRecords = Array.isArray(result.payload?.records) ? result.payload.records : [];
-      withRowIds(nextRecords as BatchableRecord[]).forEach((record) => {
-        const transactionId = getTransactionId(record);
-        if (transactionId) {
-          mergedById.set(transactionId, record);
-        }
-      });
-    }
-
-    const mergedRecords = Array.from(mergedById.values()).sort(compareLoadedRecords);
-    setAllLoadedRecords(mergedRecords);
-    setHasLoadedAllRecords(true);
-    return mergedRecords;
-  }, [rowsPerPage, showHiddenRows, totalRows]);
+    setAppliedSearchFieldValues(normalizeSearchFieldValues(searchFieldDrafts));
+    setAppliedSearchStartDate(searchStartDateDraft);
+    setAppliedSearchEndDate(searchEndDateDraft);
+    setShowSearchModal(false);
+    setErrorMessage("");
+    clearSelection();
+    resetToFirstPage();
+  }, [clearSelection, resetToFirstPage, searchEndDateDraft, searchFieldDrafts, searchStartDateDraft]);
 
   const restoreRecordsByTransactionId = React.useCallback((snapshots: BatchableRecord[]) => {
     if (snapshots.length === 0) {
@@ -1290,15 +1393,74 @@ const CryptoBatchingDataTable = () => {
         return false;
       }
 
+      const recordDateValue = getRecordSortTimestamp(record);
+      const recordDate = recordDateValue ? new Date(recordDateValue) : null;
+      const startDate = parseDateInputValue(appliedSearchStartDate);
+      const endDate = parseDateInputValue(appliedSearchEndDate);
+
+      if (startDate) {
+        if (!recordDate || Number.isNaN(recordDate.getTime()) || recordDate < startDate) {
+          return false;
+        }
+      }
+
+      if (endDate) {
+        const inclusiveEndDate = new Date(endDate);
+        inclusiveEndDate.setHours(23, 59, 59, 999);
+
+        if (!recordDate || Number.isNaN(recordDate.getTime()) || recordDate > inclusiveEndDate) {
+          return false;
+        }
+      }
+
+      for (const [field, rawSearchValue] of Object.entries(normalizedAppliedSearchFieldValues)) {
+        const normalizedSearchValue = String(rawSearchValue ?? "").trim().toLowerCase();
+        if (!normalizedSearchValue) {
+          continue;
+        }
+
+        if (field === "transactionId") {
+          if (!getTransactionId(record).toLowerCase().includes(normalizedSearchValue)) {
+            return false;
+          }
+
+          continue;
+        }
+
+        if (field === "batchTransactionNumber") {
+          const batchIdValue = formatCryptoValue(record.batchTransactionNumber ?? null).trim().toLowerCase();
+          if (!batchIdValue.includes(normalizedSearchValue)) {
+            return false;
+          }
+
+          continue;
+        }
+
+        if (field === "EIN") {
+          const einValues = [
+            formatSearchFieldValue("EIN", record),
+            formatSearchFieldValue("guideStarEIN", record),
+          ]
+            .map((value) => value.toLowerCase())
+            .filter((value) => value.length > 0);
+
+          if (!einValues.some((value) => value.includes(normalizedSearchValue))) {
+            return false;
+          }
+
+          continue;
+        }
+
+        const fieldValue = formatSearchFieldValue(field as BatchingFieldKey, record).toLowerCase();
+        if (!fieldValue.includes(normalizedSearchValue)) {
+          return false;
+        }
+      }
+
       return true;
     },
-    [showHiddenRows]
+    [appliedSearchEndDate, appliedSearchStartDate, normalizedAppliedSearchFieldValues, showHiddenRows]
   );
-
-  const resetToFirstPage = React.useCallback(() => {
-    setCurrentPage(DEFAULT_PAGE);
-    setPaginationResetToggle((previous) => !previous);
-  }, []);
 
   const updateRecordsByTransactionIds = React.useCallback(
     (
@@ -1352,6 +1514,61 @@ const CryptoBatchingDataTable = () => {
     [matchesCurrentFilters]
   );
 
+  const loadAllRecordsIntoCache = React.useCallback(async () => {
+    const pageSize = 1000;
+    const nextMap = new Map(allLoadedRecordsRef.current.map((record) => [getTransactionId(record), record]));
+    let page = 1;
+    let totalCount: number | null = null;
+
+    while (true) {
+      const searchParams = new URLSearchParams({
+        page: String(page),
+        perPage: String(pageSize),
+        showBatched: "1",
+        showHidden: showHiddenRows ? "1" : "0",
+      });
+
+      const result = await fetchJsonWithClientCache<any>(`/api/crypto/batches/transactions?${searchParams.toString()}`, {
+        ttlMs: 300000,
+        init: { method: "GET" },
+      });
+      const payload = result.payload;
+
+      if (!result.ok) {
+        throw new Error(payload?.error ?? "Failed to load crypto transactions.");
+      }
+
+      const nextRecords = Array.isArray(payload?.records) ? payload.records : [];
+      const normalizedRecords = withRowIds(nextRecords as BatchableRecord[]);
+      const nextTotalRows = Number(payload?.totalCount);
+      totalCount = Number.isFinite(nextTotalRows) ? nextTotalRows : totalCount;
+
+      normalizedRecords.forEach((record) => {
+        const transactionId = getTransactionId(record);
+        if (transactionId) {
+          nextMap.set(transactionId, record);
+        }
+      });
+
+      if (
+        normalizedRecords.length === 0 ||
+        normalizedRecords.length < pageSize ||
+        (totalCount !== null && nextMap.size >= totalCount)
+      ) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    const mergedRecords = Array.from(nextMap.values()).sort(compareLoadedRecords);
+    allLoadedRecordsRef.current = mergedRecords;
+    hasLoadedAllRecordsRef.current = true;
+    setAllLoadedRecords(mergedRecords);
+    setHasLoadedAllRecords(true);
+    return mergedRecords;
+  }, [showHiddenRows]);
+
   const loadRecords = React.useCallback(async () => {
     try {
       const sliceStart = (currentPage - 1) * rowsPerPage;
@@ -1359,7 +1576,23 @@ const CryptoBatchingDataTable = () => {
       const cachedRecords = allLoadedRecordsRef.current;
       const hasLoadedAllCachedRecords = hasLoadedAllRecordsRef.current;
 
+      if (hasActiveSearchFilters) {
+        setIsLoading(true);
+        setErrorMessage("");
+
+        const searchableRecords = hasLoadedAllCachedRecords ? cachedRecords : await loadAllRecordsIntoCache();
+        const filteredRecords = searchableRecords.filter(matchesCurrentFilters);
+
+        setTotalRows(filteredRecords.length);
+        setRecords(filteredRecords.slice(sliceStart, sliceEnd));
+        setIsLoading(false);
+        return;
+      }
+
       if (cachedRecords.length >= sliceEnd || (hasLoadedAllCachedRecords && cachedRecords.length > sliceStart)) {
+        if (hasLoadedAllCachedRecords) {
+          setTotalRows(cachedRecords.length);
+        }
         setRecords(cachedRecords.slice(sliceStart, sliceEnd));
         setIsLoading(false);
         return;
@@ -1409,7 +1642,7 @@ const CryptoBatchingDataTable = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, mergeLoadedRecords, rowsPerPage, showHiddenRows]);
+  }, [currentPage, hasActiveSearchFilters, loadAllRecordsIntoCache, matchesCurrentFilters, mergeLoadedRecords, rowsPerPage, showHiddenRows]);
 
   React.useEffect(() => {
     loadRecords();
@@ -1424,45 +1657,21 @@ const CryptoBatchingDataTable = () => {
 
   React.useEffect(() => {
     clearSelection();
-  }, [clearSelection, showHiddenRows]);
+  }, [currentPage, rowsPerPage, showHiddenRows]);
 
   React.useEffect(() => {
     setAllLoadedRecords([]);
     setHasLoadedAllRecords(false);
+    allLoadedRecordsRef.current = [];
+    hasLoadedAllRecordsRef.current = false;
     backgroundLoadRequestRef.current += 1;
   }, [showHiddenRows]);
 
-  const handleSelectedRowsChange = React.useCallback(
-    (state: { allSelected: boolean; selectedCount: number; selectedRows: unknown[] }) => {
-      const nextSelectedRows = state.selectedRows as BatchableRecord[];
-      setSelectedRows((previous) =>
-        haveSameSelectedRows(previous, nextSelectedRows) ? previous : nextSelectedRows
-      );
-    },
-    []
-  );
-
-  const toggleSelectAllRows = React.useCallback(async () => {
-    if (allFilteredSelected) {
-      clearSelection();
+  React.useEffect(() => {
+    if (hasActiveSearchFilters) {
       return;
     }
 
-    try {
-      setIsSelectingAllRows(true);
-      setErrorMessage("");
-      const allFilteredRecords = await loadAllFilteredRecords();
-      setSelectedRows((previous) =>
-        haveSameSelectedRows(previous, allFilteredRecords) ? previous : allFilteredRecords
-      );
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to select all crypto transactions.");
-    } finally {
-      setIsSelectingAllRows(false);
-    }
-  }, [allFilteredSelected, clearSelection, loadAllFilteredRecords]);
-
-  React.useEffect(() => {
     if (totalRows <= allLoadedRecords.length || totalRows === 0) {
       if (totalRows > 0 && allLoadedRecords.length >= totalRows) {
         setHasLoadedAllRecords(true);
@@ -1521,7 +1730,7 @@ const CryptoBatchingDataTable = () => {
     return () => {
       isCancelled = true;
     };
-  }, [allLoadedRecords.length, mergeLoadedRecords, showHiddenRows, totalRows]);
+  }, [allLoadedRecords.length, hasActiveSearchFilters, mergeLoadedRecords, showHiddenRows, totalRows]);
 
   const openBatchModal = () => {
     if (selectedUnbatchedRows.length === 0 || isSavingBatch) {
@@ -1853,19 +2062,6 @@ const CryptoBatchingDataTable = () => {
         <div className="me-auto flex flex-wrap items-center gap-4">
           <label className="inline-flex items-center gap-2 cursor-pointer select-none">
             <input
-              ref={selectAllCheckboxRef}
-              type="checkbox"
-              className={CHECKBOX_INPUT_CLASS}
-              checked={allFilteredSelected}
-              onChange={() => {
-                void toggleSelectAllRows();
-              }}
-              disabled={isAnyActionBusy || totalRows === 0}
-            />
-            <span>Select All</span>
-          </label>
-          <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-            <input
               type="checkbox"
               className={CHECKBOX_INPUT_CLASS}
               checked={showHiddenRows}
@@ -1875,7 +2071,21 @@ const CryptoBatchingDataTable = () => {
               }}
             />
             <span>Show Hidden</span>
+            {hasActiveSearchFilters ? (
+              <span className="inline-flex items-center rounded-sm bg-primary/10 px-2 py-1 text-primary">
+                Search active
+              </span>
+            ) : null}
           </label>
+
+          <SpkButton variant="light" customClass="ti-btn" onclickfunc={openSearchModal}>
+            Search
+          </SpkButton>
+          {hasActiveSearchFilters ? (
+            <SpkButton variant="light" customClass="ti-btn" onclickfunc={clearSearchFilters}>
+              Clear Search
+            </SpkButton>
+          ) : null}
         </div>
         <SpkButton variant="light" customClass="ti-btn" onclickfunc={() => setShowFieldModal(true)}>
           Select Fields
@@ -1941,17 +2151,13 @@ const CryptoBatchingDataTable = () => {
           setSortDirection(direction);
         }}
         selectableRows
-        selectableRowsNoSelectAll
-        selectableRowSelected={isRowSelected}
-        onSelectedRowsChange={handleSelectedRowsChange}
+        onSelectedRowsChange={(state: { selectedRows: unknown[] }) =>
+          setSelectedRows(state.selectedRows as BatchableRecord[])
+        }
         clearSelectedRows={toggleCleared}
         conditionalRowStyles={conditionalRowStyles as any}
         pagination
         paginationServer
-        paginationServerOptions={{
-          persistSelectedOnPageChange: true,
-          persistSelectedOnSort: true,
-        }}
         paginationComponent={paginationComponent as any}
         paginationDefaultPage={DEFAULT_PAGE}
         paginationResetDefaultPage={paginationResetToggle}
@@ -2012,6 +2218,157 @@ const CryptoBatchingDataTable = () => {
                 onclickfunc={createBatch}
               >
                 {isSavingBatch ? "Saving Batch..." : "Create Batch"}
+              </SpkButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showSearchModal ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-sm bg-white dark:bg-bodybg p-5 border border-defaultborder">
+            <div className="mb-3 flex items-center justify-between">
+              <h6 className="mb-0">Search Transactions</h6>
+              <SpkButton variant="light" customClass="ti-btn" onclickfunc={closeSearchModal}>
+                Close
+              </SpkButton>
+            </div>
+
+            <p className="mb-4 text-[0.8125rem] text-textmuted">
+              Search across all transaction fields. Date filters apply to the transaction date and are inclusive.
+            </p>
+
+            <div className="grid gap-6 md:grid-cols-2">
+              <div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="form-label">Beginning Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={searchStartDateDraft}
+                      onChange={(event) => setSearchStartDateDraft(event.target.value)}
+                    />
+                  </div>
+
+                  {LEFT_SEARCH_FIELDS.map((field) => (
+                    <div key={`search-left-${field.key}`}>
+                      <label className="form-label">{field.label}</label>
+                      {field.key === "batchTransactionNumber" ? (
+                        <select
+                          className="form-control"
+                          value={searchFieldDrafts[field.key] ?? ""}
+                          onChange={(event) =>
+                            setSearchFieldDrafts((previous) => ({
+                              ...previous,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">All Batch IDs</option>
+                          {batchIdSearchOptions.map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.key === "statusFromAdmin" ? (
+                        <select
+                          className="form-control"
+                          value={searchFieldDrafts[field.key] ?? ""}
+                          onChange={(event) =>
+                            setSearchFieldDrafts((previous) => ({
+                              ...previous,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">All Statuses</option>
+                          {statusSearchOptions.map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      ) : field.key === "partner" ? (
+                        <select
+                          className="form-control"
+                          value={searchFieldDrafts[field.key] ?? ""}
+                          onChange={(event) =>
+                            setSearchFieldDrafts((previous) => ({
+                              ...previous,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">All Partners</option>
+                          {partnerSearchOptions.map((value) => (
+                            <option key={value} value={value}>
+                              {value}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder={`Search ${field.label}`}
+                          value={searchFieldDrafts[field.key] ?? ""}
+                          onChange={(event) =>
+                            setSearchFieldDrafts((previous) => ({
+                              ...previous,
+                              [field.key]: event.target.value,
+                            }))
+                          }
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="form-label">Ending Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={searchEndDateDraft}
+                      onChange={(event) => setSearchEndDateDraft(event.target.value)}
+                    />
+                  </div>
+
+                  {RIGHT_SEARCH_FIELDS.map((field) => (
+                    <div key={`search-right-${field.key}`}>
+                      <label className="form-label">{field.label}</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder={`Search ${field.label}`}
+                        value={searchFieldDrafts[field.key] ?? ""}
+                        onChange={(event) =>
+                          setSearchFieldDrafts((previous) => ({
+                            ...previous,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <SpkButton variant="light" customClass="ti-btn" onclickfunc={clearSearchFilters}>
+                Clear
+              </SpkButton>
+              <SpkButton variant="light" customClass="ti-btn" onclickfunc={closeSearchModal}>
+                Cancel
+              </SpkButton>
+              <SpkButton variant="primary" customClass="ti-btn" onclickfunc={applySearchFilters}>
+                Apply Search
               </SpkButton>
             </div>
           </div>

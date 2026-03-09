@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const { offset, page, perPage } = parsePaginationParams({
       pageParam: request.nextUrl.searchParams.get("page"),
       perPageParam: request.nextUrl.searchParams.get("perPage"),
+      maxPerPage: 50000,
     });
     const result = await getSavedCryptoTransactionsPage({
       offset,

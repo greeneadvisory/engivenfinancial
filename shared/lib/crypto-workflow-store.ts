@@ -219,6 +219,7 @@ const ensureWorkflowRows = async (transactionIds: string[]) => {
 };
 
 const MASTER_RECORD_ID_CHUNK_SIZE = 100;
+const MASTER_RECORD_SCAN_PAGE_SIZE = 1000;
 
 const getMasterRowsByIdsInChunks = async (transactionIds: string[]) => {
   const uniqueIds = Array.from(new Set(transactionIds.map((id) => id.trim()).filter((id) => id.length > 0)));
@@ -414,14 +415,13 @@ export async function getSavedCryptoTransactionsPage(options: {
   );
 
   const targetCount = options.offset + options.limit;
-  const pageSize = Math.max(options.limit * 4, 250);
   const filteredRecords: CryptoRecord[] = [];
   let masterOffset = 0;
 
   while (filteredRecords.length < targetCount) {
     const masterPage = await getStoredMasterCryptoRecordsPage({
       offset: masterOffset,
-      limit: pageSize,
+      limit: MASTER_RECORD_SCAN_PAGE_SIZE,
     });
 
     if (masterPage.rows.length === 0) {
@@ -441,11 +441,11 @@ export async function getSavedCryptoTransactionsPage(options: {
       }
     }
 
-    if (masterPage.rows.length < pageSize) {
+    if (masterPage.rows.length < MASTER_RECORD_SCAN_PAGE_SIZE) {
       break;
     }
 
-    masterOffset += pageSize;
+    masterOffset += MASTER_RECORD_SCAN_PAGE_SIZE;
   }
 
   const pageRows = filteredRecords.slice(options.offset, options.offset + options.limit);
