@@ -84,17 +84,13 @@ const Sidebar = ({ local_varaiable, ThemeChanger }: any) => {
 	  }, []);
 	const pathname = usePathname()
 
-	const setPendingUpdatesLabels = React.useCallback((npoPendingCount: number, cryptoPendingCount: number) => {
+	const setPendingUpdatesLabels = React.useCallback((npoPendingCount: number) => {
 		const applyLabel = (items: any[]): any[] => {
 			return items.map((item: any) => {
 				const updatedItem = { ...item };
 
 				if (updatedItem.path === "/npos/npo-updates") {
 					updatedItem.title = npoPendingCount > 0 ? `NPO Updates (${npoPendingCount})` : "NPO Updates";
-				}
-
-				if (updatedItem.path === "/crypto/crypto-updates") {
-					updatedItem.title = cryptoPendingCount > 0 ? `Crypto Updates (${cryptoPendingCount})` : "Crypto Updates";
 				}
 
 				if (Array.isArray(updatedItem.children)) {
@@ -110,25 +106,17 @@ const Sidebar = ({ local_varaiable, ThemeChanger }: any) => {
 
 	const refreshPendingUpdatesCount = React.useCallback(async (force = false) => {
 		try {
-			const [npoResponse, cryptoResponse] = await Promise.all([
-				fetchJsonWithClientCache<any>(`/api/npos/changes/summary${force ? "?force=1" : ""}`, {
-					ttlMs: force ? 0 : 30000,
-					forceRefresh: force,
-					init: { method: "GET" },
-				}),
-				fetchJsonWithClientCache<any>(`/api/crypto/changes/summary${force ? "?force=1" : ""}`, {
-					ttlMs: force ? 0 : 30000,
-					forceRefresh: force,
-					init: { method: "GET" },
-				}),
-			]);
+			const npoResponse = await fetchJsonWithClientCache<any>(`/api/npos/changes/summary${force ? "?force=1" : ""}`, {
+				ttlMs: force ? 0 : 30000,
+				forceRefresh: force,
+				init: { method: "GET" },
+			});
 
 			const npoPendingCount = npoResponse.ok && npoResponse.payload ? Number(npoResponse.payload.pendingCount ?? 0) : 0;
-			const cryptoPendingCount = cryptoResponse.ok && cryptoResponse.payload ? Number(cryptoResponse.payload.pendingCount ?? 0) : 0;
 
-			setPendingUpdatesLabels(npoPendingCount, cryptoPendingCount);
+			setPendingUpdatesLabels(npoPendingCount);
 		} catch {
-			setPendingUpdatesLabels(0, 0);
+			setPendingUpdatesLabels(0);
 		}
 	}, [setPendingUpdatesLabels]);
 
@@ -159,7 +147,6 @@ const Sidebar = ({ local_varaiable, ThemeChanger }: any) => {
 		window.addEventListener("focus", handleExternalRefresh);
 		document.addEventListener("visibilitychange", handleVisibilityChange);
 		window.addEventListener("npo-updates-refresh", handleExternalRefresh);
-		window.addEventListener("crypto-updates-refresh", handleExternalRefresh);
 
 		return () => {
 			if (typeof idleCallback === "number") {
@@ -171,7 +158,6 @@ const Sidebar = ({ local_varaiable, ThemeChanger }: any) => {
 			window.removeEventListener("focus", handleExternalRefresh);
 			document.removeEventListener("visibilitychange", handleVisibilityChange);
 			window.removeEventListener("npo-updates-refresh", handleExternalRefresh);
-			window.removeEventListener("crypto-updates-refresh", handleExternalRefresh);
 		};
 	}, [refreshPendingUpdatesCount]);
 

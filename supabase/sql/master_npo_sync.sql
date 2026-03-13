@@ -51,13 +51,35 @@ create table if not exists public.master_npo_change_log (
 create index if not exists idx_master_npo_change_log_external_id on public.master_npo_change_log (npo_external_id);
 create index if not exists idx_master_npo_change_log_applied_at on public.master_npo_change_log (applied_at desc);
 
+alter table public.master_npo_records enable row level security;
+alter table public.master_npo_change_log enable row level security;
+
+drop policy if exists master_npo_records_service_role_all on public.master_npo_records;
+create policy master_npo_records_service_role_all
+on public.master_npo_records
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists master_npo_change_log_service_role_all on public.master_npo_change_log;
+create policy master_npo_change_log_service_role_all
+on public.master_npo_change_log
+for all
+to service_role
+using (true)
+with check (true);
+
 create or replace function public.set_updated_at()
-returns trigger as $$
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
 begin
   new.updated_at = now();
   return new;
 end;
-$$ language plpgsql;
+$$;
 
 drop trigger if exists trg_master_npo_records_updated_at on public.master_npo_records;
 create trigger trg_master_npo_records_updated_at

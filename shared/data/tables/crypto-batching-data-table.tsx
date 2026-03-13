@@ -6,7 +6,7 @@ import SpkButton from "@/shared/@spk-reusable-components/uielements/spk-button";
 import SpkSpinner from "@/shared/@spk-reusable-components/uielements/spk-spinner";
 import Loader from "@/shared/layouts-components/loader/loader";
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, STANDARD_PAGE_SIZE_OPTIONS, getTotalPages } from "@/shared/lib/pagination";
-import { CRYPTO_FIELDS, formatCryptoValue } from "@/shared/lib/crypto-sync";
+import { CRYPTO_FIELDS, CryptoPreviewChange, formatCryptoValue } from "@/shared/lib/crypto-sync";
 import { CryptoRecord } from "@/shared/lib/engiven-crypto";
 import { clearClientFetchCache, fetchJsonWithClientCache } from "@/shared/lib/client-fetch-cache";
 
@@ -186,7 +186,7 @@ const getPartnerName = (row: BatchableRecord) => {
 
   const partnerCandidates = [
     row.apiPartnerName,
-    (row as Record<string, unknown>).affiliatePartnerName as string | number | boolean | null | undefined,
+    row.affiliateName,
     (row as Record<string, unknown>).instantPartnerName as string | number | boolean | null | undefined,
   ];
 
@@ -366,6 +366,75 @@ type CryptoDonationsTableSettings = {
   manualColumnWidths?: unknown;
 };
 
+type CryptoPreviewSummary = {
+  incomingCount: number;
+  savedCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  autoApprovedCount: number;
+  newIgnoredCount: number;
+};
+
+const formatPreviewFieldValue = (field: string, record: CryptoRecord) => {
+  const row = record as BatchableRecord;
+  const rawValue = row[field as keyof BatchableRecord] as string | number | boolean | null;
+
+  if (field === "transactionConfirmedTimeStamp") {
+    const formattedValue = formatPstDateTime(rawValue);
+    const normalizedRawValue = formatCryptoValue(rawValue).trim();
+
+    if (normalizedRawValue && formattedValue !== normalizedRawValue) {
+      return `${formattedValue} (${normalizedRawValue})`;
+    }
+
+    return formattedValue;
+  }
+
+  if (field === "usdValueAtConfirmation" || field === "usdValueForNpo") {
+    const moneyValue = formatMoney(rawValue);
+    const normalizedRawValue = formatCryptoValue(rawValue).trim();
+
+    if (!normalizedRawValue) {
+      return "";
+    }
+
+    return moneyValue === normalizedRawValue ? moneyValue : `${moneyValue} (${normalizedRawValue})`;
+  }
+
+  return formatBatchingFieldValue(field, rawValue, row);
+};
+
+const getChangedFieldLabel = (field: string) => {
+  if (field === "transactionConfirmedTimeStamp") {
+    return "Date";
+  }
+
+  if (field === "usdValueAtConfirmation") {
+    return "Gross";
+  }
+
+  if (field === "usdValueForNpo") {
+    return "Payout";
+  }
+
+  return getApiFieldDisplayName(field);
+};
+
+const parseJsonResponse = async (response: Response) => {
+  const rawText = await response.text();
+  const trimmedText = rawText.trim();
+
+  if (!trimmedText) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmedText) as any;
+  } catch {
+    return null;
+  }
+};
+
 type SearchFieldKey = BatchingFieldKey | "transactionId" | "batchTransactionNumber";
 type SearchFieldValues = Partial<Record<SearchFieldKey, string>>;
 
@@ -439,6 +508,23 @@ const parseDateInputValue = (value: string) => {
   }
 
   return new Date(year, month - 1, day);
+};
+
+const getTodayDateInputValue = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const toBatchAssignedAtValue = (value: string) => {
+  const parsedDate = parseDateInputValue(value);
+  if (!parsedDate) {
+    return new Date().toISOString();
+  }
+
+  return new Date(Date.UTC(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate(), 12, 0, 0, 0)).toISOString();
 };
 
 const DEFAULT_MANUAL_COLUMN_WIDTHS: Partial<Record<BatchingFieldKey, number>> = {
@@ -681,6 +767,8 @@ const CryptoBatchingDataTable = () => {
   const [showFieldModal, setShowFieldModal] = React.useState(false);
   const [showBatchModal, setShowBatchModal] = React.useState(false);
   const [batchNameDraft, setBatchNameDraft] = React.useState("");
+  const [batchDateDraft, setBatchDateDraft] = React.useState(getTodayDateInputValue);
+  const [reviewActionInFlight, setReviewActionInFlight] = React.useState<"accept" | "revoke" | null>(null);
   const [viewRecord, setViewRecord] = React.useState<BatchableRecord | null>(null);
   const [showHiddenRows, setShowHiddenRows] = React.useState(false);
   const [paginationResetToggle, setPaginationResetToggle] = React.useState(false);
@@ -718,9 +806,21 @@ const CryptoBatchingDataTable = () => {
   const allLoadedRecordsRef = React.useRef<BatchableRecord[]>([]);
   const hasLoadedAllRecordsRef = React.useRef(false);
   const backgroundLoadRequestRef = React.useRef(0);
+  const shouldSyncOnFirstLoadRef = React.useRef(true);
   const hasLoadedServerTableSettingsRef = React.useRef(false);
   const saveTableSettingsTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [availableTableWidth, setAvailableTableWidth] = React.useState(0);
+  const [pendingChangeCount, setPendingChangeCount] = React.useState(0);
+  const [pendingChangeSummary, setPendingChangeSummary] = React.useState<CryptoPreviewSummary | null>(null);
+  const [pendingChanges, setPendingChanges] = React.useState<CryptoPreviewChange[]>([]);
+  const [selectedPendingChangeIds, setSelectedPendingChangeIds] = React.useState<string[]>([]);
+  const [focusedPendingChangeId, setFocusedPendingChangeId] = React.useState("");
+  const [showPendingChangesModal, setShowPendingChangesModal] = React.useState(false);
+  const [isPendingSummaryLoading, setIsPendingSummaryLoading] = React.useState(true);
+  const [isPendingPreviewLoading, setIsPendingPreviewLoading] = React.useState(false);
+  const [isApplyingPendingChanges, setIsApplyingPendingChanges] = React.useState(false);
+  const [pendingChangesError, setPendingChangesError] = React.useState("");
+  const [pendingChangesMessage, setPendingChangesMessage] = React.useState("");
   const normalizedAppliedSearchFieldValues = React.useMemo(
     () => normalizeSearchFieldValues(appliedSearchFieldValues),
     [appliedSearchFieldValues]
@@ -767,6 +867,84 @@ const CryptoBatchingDataTable = () => {
   React.useEffect(() => {
     hasLoadedAllRecordsRef.current = hasLoadedAllRecords;
   }, [hasLoadedAllRecords]);
+
+  const loadPendingChangeSummary = React.useCallback(async (forceRefresh = false) => {
+    try {
+      setIsPendingSummaryLoading(true);
+
+      const suffix = forceRefresh ? "?force=1" : "";
+      const result = await fetchJsonWithClientCache<any>(`/api/crypto/changes/summary${suffix}`, {
+        ttlMs: 30000,
+        forceRefresh,
+        init: { method: "GET" },
+      });
+      const payload = result.payload;
+
+      if (!result.ok || !payload) {
+        setPendingChangeCount(0);
+        setPendingChangeSummary(null);
+        if (forceRefresh) {
+          setPendingChangesError(payload?.error ?? "Failed to load crypto update summary.");
+        }
+        return;
+      }
+
+      setPendingChangeCount(Number(payload.pendingCount ?? 0));
+      setPendingChangeSummary((payload.summary ?? null) as CryptoPreviewSummary | null);
+    } catch (error) {
+      setPendingChangeCount(0);
+      setPendingChangeSummary(null);
+      if (forceRefresh) {
+        setPendingChangesError(error instanceof Error ? error.message : "Failed to load crypto update summary.");
+      }
+    } finally {
+      setIsPendingSummaryLoading(false);
+    }
+  }, []);
+
+  const loadPendingChanges = React.useCallback(async (forceRefresh = false) => {
+    try {
+      setIsPendingPreviewLoading(true);
+      setPendingChangesError("");
+      setPendingChangesMessage("");
+
+      const result = await fetchJsonWithClientCache<any>("/api/crypto/changes/preview", {
+        ttlMs: 30000,
+        forceRefresh,
+        init: { method: "GET" },
+      });
+      const payload = result.payload;
+
+      if (!result.ok || !payload) {
+        setPendingChanges([]);
+        setSelectedPendingChangeIds([]);
+        setFocusedPendingChangeId("");
+        setPendingChangesError(payload?.error ?? "Failed to preview crypto changes.");
+        return;
+      }
+
+      const nextChanges = Array.isArray(payload?.changes) ? (payload.changes as CryptoPreviewChange[]) : [];
+      const nextSummary = (payload?.summary ?? null) as CryptoPreviewSummary | null;
+      const nextFocusedId = nextChanges[0]?.changeId ?? "";
+
+      setPendingChanges(nextChanges);
+      setPendingChangeSummary(nextSummary);
+      setPendingChangeCount(Number(nextSummary?.updatedCount ?? nextChanges.length));
+      setSelectedPendingChangeIds((previous) => previous.filter((id) => nextChanges.some((change) => change.changeId === id)));
+      setFocusedPendingChangeId((previous) => (previous && nextChanges.some((change) => change.changeId === previous) ? previous : nextFocusedId));
+    } catch (error) {
+      setPendingChanges([]);
+      setSelectedPendingChangeIds([]);
+      setFocusedPendingChangeId("");
+      setPendingChangesError(error instanceof Error ? error.message : "Failed to preview crypto changes.");
+    } finally {
+      setIsPendingPreviewLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    setIsPendingSummaryLoading(false);
+  }, []);
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -1438,7 +1616,14 @@ const CryptoBatchingDataTable = () => {
       previous.map((record) => snapshotMap.get(getTransactionId(record)) ?? record);
 
     setRecords((previous) => restore(previous));
-    setAllLoadedRecords((previous) => restore(previous));
+  }, []);
+
+  const invalidateLoadedRecordsCache = React.useCallback(() => {
+    setAllLoadedRecords([]);
+    setHasLoadedAllRecords(false);
+    allLoadedRecordsRef.current = [];
+    hasLoadedAllRecordsRef.current = false;
+    backgroundLoadRequestRef.current += 1;
   }, []);
 
   const matchesCurrentFilters = React.useCallback(
@@ -1559,13 +1744,13 @@ const CryptoBatchingDataTable = () => {
         });
 
       setRecords((previous) => applyPatch(previous, true));
-      setAllLoadedRecords((previous) => applyPatch(previous, false));
+      invalidateLoadedRecordsCache();
 
       if (totalDelta !== 0) {
         setTotalRows((previous) => Math.max(0, previous + totalDelta));
       }
     },
-    [matchesCurrentFilters]
+    [invalidateLoadedRecordsCache, matchesCurrentFilters]
   );
 
   const loadAllRecordsIntoCache = React.useCallback(async () => {
@@ -1629,6 +1814,7 @@ const CryptoBatchingDataTable = () => {
       const sliceEnd = sliceStart + rowsPerPage;
       const cachedRecords = allLoadedRecordsRef.current;
       const hasLoadedAllCachedRecords = hasLoadedAllRecordsRef.current;
+      const shouldSyncOnFirstLoad = shouldSyncOnFirstLoadRef.current;
 
       if (hasActiveSearchFilters) {
         setIsLoading(true);
@@ -1662,11 +1848,18 @@ const CryptoBatchingDataTable = () => {
         showHidden: showHiddenRows ? "1" : "0",
       });
 
+      if (shouldSyncOnFirstLoad) {
+        searchParams.set("sync", "1");
+        clearClientFetchCache("/api/crypto/batches/transactions");
+      }
+
       const result = await fetchJsonWithClientCache<any>(`/api/crypto/batches/transactions?${searchParams.toString()}`, {
         ttlMs: 60000,
+        forceRefresh: shouldSyncOnFirstLoad,
         init: { method: "GET" },
       });
       const payload = result.payload;
+      shouldSyncOnFirstLoadRef.current = false;
 
       if (!result.ok) {
         setErrorMessage(payload?.error ?? "Failed to load crypto transactions.");
@@ -1678,6 +1871,13 @@ const CryptoBatchingDataTable = () => {
       const nextRecords = Array.isArray(payload?.records) ? payload.records : [];
       const nextTotalRows = Number(payload?.totalCount);
       const normalizedTotalRows = Number.isFinite(nextTotalRows) ? nextTotalRows : nextRecords.length;
+
+      if (payload?.pendingSummary) {
+        setPendingChangeSummary(payload.pendingSummary as CryptoPreviewSummary);
+        setPendingChangeCount(Number(payload.pendingCount ?? payload.pendingSummary?.updatedCount ?? 0));
+        setIsPendingSummaryLoading(false);
+      }
+
       const totalPages = getTotalPages(normalizedTotalRows, rowsPerPage);
 
       if (normalizedTotalRows > 0 && currentPage > totalPages) {
@@ -1702,6 +1902,81 @@ const CryptoBatchingDataTable = () => {
     loadRecords();
   }, [loadRecords]);
 
+  const refreshDisplayedRecords = React.useCallback(async () => {
+    allLoadedRecordsRef.current = [];
+    hasLoadedAllRecordsRef.current = false;
+    setAllLoadedRecords([]);
+    setHasLoadedAllRecords(false);
+    clearClientFetchCache("/api/crypto/batches/transactions");
+    await loadRecords();
+  }, [loadRecords]);
+
+  const openPendingChangesModal = React.useCallback(async () => {
+    setShowPendingChangesModal(true);
+    await loadPendingChanges(true);
+  }, [loadPendingChanges]);
+
+  const closePendingChangesModal = React.useCallback(() => {
+    setShowPendingChangesModal(false);
+    setPendingChangesMessage("");
+  }, []);
+
+  const togglePendingChangeSelection = React.useCallback((changeId: string) => {
+    setSelectedPendingChangeIds((previous) =>
+      previous.includes(changeId) ? previous.filter((id) => id !== changeId) : [...previous, changeId]
+    );
+  }, []);
+
+  const applySelectedPendingChanges = React.useCallback(async () => {
+    if (selectedPendingChangeIds.length === 0 || isApplyingPendingChanges) {
+      return;
+    }
+
+    try {
+      setIsApplyingPendingChanges(true);
+      setPendingChangesError("");
+      setPendingChangesMessage("");
+
+      const response = await fetch("/api/crypto/changes/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          changeIds: selectedPendingChangeIds,
+        }),
+      });
+
+      const payload = await parseJsonResponse(response);
+
+      if (!response.ok || !payload) {
+        setPendingChangesError(payload?.error ?? "Failed to apply selected crypto changes.");
+        return;
+      }
+
+      setPendingChangesMessage(`Accepted ${payload.appliedCount ?? selectedPendingChangeIds.length} pending change${(payload.appliedCount ?? selectedPendingChangeIds.length) === 1 ? "" : "s"}.`);
+      clearClientFetchCache("/api/crypto/changes/preview");
+      clearClientFetchCache("/api/crypto/changes/summary");
+      await Promise.all([loadPendingChanges(true), loadPendingChangeSummary(true), refreshDisplayedRecords()]);
+    } catch (error) {
+      setPendingChangesError(error instanceof Error ? error.message : "Failed to apply selected crypto changes.");
+    } finally {
+      setIsApplyingPendingChanges(false);
+    }
+  }, [isApplyingPendingChanges, loadPendingChangeSummary, loadPendingChanges, refreshDisplayedRecords, selectedPendingChangeIds]);
+
+  const focusedPendingChange = React.useMemo(
+    () => pendingChanges.find((change) => change.changeId === focusedPendingChangeId) ?? pendingChanges[0] ?? null,
+    [focusedPendingChangeId, pendingChanges]
+  );
+
+  const allPendingChangesSelected =
+    pendingChanges.length > 0 && selectedPendingChangeIds.length === pendingChanges.length;
+
+  const toggleSelectAllPendingChanges = React.useCallback(() => {
+    setSelectedPendingChangeIds(allPendingChangesSelected ? [] : pendingChanges.map((change) => change.changeId));
+  }, [allPendingChangesSelected, pendingChanges]);
+
   React.useEffect(() => {
     const totalPages = getTotalPages(totalRows, rowsPerPage);
     if (currentPage > totalPages) {
@@ -1721,77 +1996,13 @@ const CryptoBatchingDataTable = () => {
     backgroundLoadRequestRef.current += 1;
   }, [showHiddenRows]);
 
-  React.useEffect(() => {
-    if (hasActiveSearchFilters) {
-      return;
-    }
-
-    if (totalRows <= allLoadedRecords.length || totalRows === 0) {
-      if (totalRows > 0 && allLoadedRecords.length >= totalRows) {
-        setHasLoadedAllRecords(true);
-      }
-      return;
-    }
-
-    const requestId = backgroundLoadRequestRef.current + 1;
-    backgroundLoadRequestRef.current = requestId;
-    let isCancelled = false;
-
-    const prefetchAllRecords = async () => {
-      const backgroundPageSize = 250;
-      const totalPages = Math.ceil(totalRows / backgroundPageSize);
-
-      for (let page = 1; page <= totalPages; page += 1) {
-        if (isCancelled || backgroundLoadRequestRef.current !== requestId) {
-          return;
-        }
-
-        try {
-          const searchParams = new URLSearchParams({
-            page: String(page),
-            perPage: String(backgroundPageSize),
-            showBatched: "1",
-            showHidden: showHiddenRows ? "1" : "0",
-          });
-
-          const result = await fetchJsonWithClientCache<any>(
-            `/api/crypto/batches/transactions?${searchParams.toString()}`,
-            {
-              ttlMs: 300000,
-              init: { method: "GET" },
-            }
-          );
-
-          if (!result.ok) {
-            return;
-          }
-
-          const payload = result.payload;
-          const nextRecords = Array.isArray(payload?.records) ? payload.records : [];
-          mergeLoadedRecords(withRowIds(nextRecords as BatchableRecord[]));
-        } catch {
-          return;
-        }
-      }
-
-      if (!isCancelled && backgroundLoadRequestRef.current === requestId) {
-        setHasLoadedAllRecords(true);
-      }
-    };
-
-    void prefetchAllRecords();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [allLoadedRecords.length, hasActiveSearchFilters, mergeLoadedRecords, showHiddenRows, totalRows]);
-
   const openBatchModal = () => {
     if (selectedUnbatchedRows.length === 0 || isSavingBatch) {
       return;
     }
 
     setBatchNameDraft("");
+    setBatchDateDraft(getTodayDateInputValue());
     setShowBatchModal(true);
   };
 
@@ -1802,6 +2013,7 @@ const CryptoBatchingDataTable = () => {
 
     setShowBatchModal(false);
     setBatchNameDraft("");
+    setBatchDateDraft(getTodayDateInputValue());
   };
 
   const createBatch = async () => {
@@ -1815,6 +2027,11 @@ const CryptoBatchingDataTable = () => {
       return;
     }
 
+    if (!parseDateInputValue(batchDateDraft)) {
+      setErrorMessage("Batch date is required.");
+      return;
+    }
+
     try {
       setIsSavingBatch(true);
       setErrorMessage("");
@@ -1823,10 +2040,11 @@ const CryptoBatchingDataTable = () => {
         .map((row) => formatCryptoValue(row.id))
         .filter((id) => id.length > 0);
       const selectedSnapshots = selectedUnbatchedRows.map((row) => ({ ...row }));
-      const optimisticAssignedAt = new Date().toISOString();
+      const optimisticAssignedAt = toBatchAssignedAtValue(batchDateDraft);
 
       setShowBatchModal(false);
       setBatchNameDraft("");
+      setBatchDateDraft(getTodayDateInputValue());
       updateRecordsByTransactionIds(transactionIds, (record) => ({
         ...record,
         batchTransactionNumber: record.batchTransactionNumber ?? "Batching...",
@@ -1838,10 +2056,10 @@ const CryptoBatchingDataTable = () => {
       const response = await fetch("/api/crypto/batches/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transactionIds, batchName }),
+        body: JSON.stringify({ transactionIds, batchName, batchDate: batchDateDraft }),
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!response.ok) {
         restoreRecordsByTransactionId(selectedSnapshots);
@@ -1872,6 +2090,7 @@ const CryptoBatchingDataTable = () => {
 
     try {
       setIsAcceptingRows(true);
+      setReviewActionInFlight("accept");
       setErrorMessage("");
 
       const transactionIds = selectedUnacceptedRows
@@ -1891,7 +2110,7 @@ const CryptoBatchingDataTable = () => {
         body: JSON.stringify({ transactionIds }),
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!response.ok) {
         restoreRecordsByTransactionId(selectedSnapshots);
@@ -1908,6 +2127,7 @@ const CryptoBatchingDataTable = () => {
       setErrorMessage(error instanceof Error ? error.message : "Failed to accept crypto transactions.");
     } finally {
       setIsAcceptingRows(false);
+      setReviewActionInFlight(null);
     }
   };
 
@@ -1918,6 +2138,7 @@ const CryptoBatchingDataTable = () => {
 
     try {
       setIsAcceptingRows(true);
+      setReviewActionInFlight("revoke");
       setErrorMessage("");
 
       const transactionIds = selectedAcceptedRows
@@ -1936,7 +2157,7 @@ const CryptoBatchingDataTable = () => {
         body: JSON.stringify({ transactionIds }),
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!response.ok) {
         restoreRecordsByTransactionId(selectedSnapshots);
@@ -1953,6 +2174,7 @@ const CryptoBatchingDataTable = () => {
       setErrorMessage(error instanceof Error ? error.message : "Failed to revoke crypto transactions.");
     } finally {
       setIsAcceptingRows(false);
+      setReviewActionInFlight(null);
     }
   };
 
@@ -1983,7 +2205,7 @@ const CryptoBatchingDataTable = () => {
         body: JSON.stringify({ transactionIds }),
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!response.ok) {
         restoreRecordsByTransactionId(selectedSnapshots);
@@ -2032,7 +2254,7 @@ const CryptoBatchingDataTable = () => {
         body: JSON.stringify({ transactionIds }),
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!response.ok) {
         restoreRecordsByTransactionId(selectedSnapshots);
@@ -2077,7 +2299,7 @@ const CryptoBatchingDataTable = () => {
         body: JSON.stringify({ transactionIds }),
       });
 
-      const payload = await response.json();
+      const payload = await parseJsonResponse(response);
 
       if (!response.ok) {
         restoreRecordsByTransactionId(selectedSnapshots);
@@ -2109,8 +2331,8 @@ const CryptoBatchingDataTable = () => {
   );
 
   return (
-    <span ref={tableContainerRef} className="datatable block w-full">
-      {isLoading || isAnyActionBusy ? <Loader active transparentBackground={!isLoading} /> : null}
+    <span ref={tableContainerRef} className="datatable relative block w-full">
+      {isLoading ? <Loader active transparentBackground={false} /> : null}
 
       <div className="sticky top-0 z-20 mb-1 bg-white/95 pb-1 backdrop-blur dark:bg-bodybg/95">
         <div className="flex flex-wrap items-center justify-end gap-2 text-[0.8125rem] text-defaulttextcolor">
@@ -2154,7 +2376,7 @@ const CryptoBatchingDataTable = () => {
           onclickfunc={canRevoke ? revokeSelected : acceptSelected}
         >
           {isAcceptingRows
-            ? canRevoke
+            ? reviewActionInFlight === "revoke"
               ? "Revoking..."
               : "Accepting..."
             : canRevoke
@@ -2177,6 +2399,27 @@ const CryptoBatchingDataTable = () => {
         </SpkButton>
         </div>
       </div>
+
+      {pendingChangeCount > 0 && !showPendingChangesModal ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-warning/30 bg-warning/10 px-3 py-2 text-[0.8125rem] text-defaulttextcolor">
+          <div>
+            <strong>{pendingChangeCount}</strong> existing crypto transaction{pendingChangeCount === 1 ? " has" : "s have"} upstream changes waiting for review.
+            {pendingChangeSummary ? (
+              <span className="ms-2 text-textmuted">
+                Incoming: {pendingChangeSummary.incomingCount} | Updated: {pendingChangeSummary.updatedCount} | Auto-approved: {pendingChangeSummary.autoApprovedCount}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <SpkButton variant="warning" customClass="ti-btn" onclickfunc={() => void openPendingChangesModal()}>
+              Review Pending Changes
+            </SpkButton>
+            <SpkButton variant="light" customClass="ti-btn" onclickfunc={() => void loadPendingChangeSummary(true)}>
+              Refresh Count
+            </SpkButton>
+          </div>
+        </div>
+      ) : null}
 
       {errorMessage ? <p className="mb-3 text-danger">{errorMessage}</p> : null}
 
@@ -2239,6 +2482,16 @@ const CryptoBatchingDataTable = () => {
             <p className="mb-3 text-[0.8125rem] text-textmuted">
               Enter a batch name for the {selectedUnbatchedRows.length} selected unbatched transaction{selectedUnbatchedRows.length === 1 ? "" : "s"}.
             </p>
+
+            <div className="mb-4">
+              <label className="form-label">Batch Date</label>
+              <input
+                type="date"
+                className="form-control"
+                value={batchDateDraft}
+                onChange={(event) => setBatchDateDraft(event.target.value)}
+              />
+            </div>
 
             <div className="mb-4">
               <label className="form-label">Batch Name</label>
@@ -2589,6 +2842,146 @@ const CryptoBatchingDataTable = () => {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showPendingChangesModal ? (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-7xl max-h-[90vh] overflow-y-auto rounded-sm bg-white p-5 border border-defaultborder dark:bg-bodybg">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div>
+                <h6 className="mb-1">Crypto Pending Updates</h6>
+                <p className="mb-0 text-[0.8125rem] text-textmuted">
+                  Review upstream changes for existing transactions before replacing saved values.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <SpkButton variant="light" customClass="ti-btn" onclickfunc={() => void loadPendingChanges(true)}>
+                  Refresh Preview
+                </SpkButton>
+                <SpkButton variant="light" customClass="ti-btn" onclickfunc={closePendingChangesModal}>
+                  Keep Current
+                </SpkButton>
+              </div>
+            </div>
+
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[0.8125rem] text-defaulttextcolor">
+              <span>
+                Incoming: <strong>{pendingChangeSummary?.incomingCount ?? 0}</strong> | Saved: <strong>{pendingChangeSummary?.savedCount ?? 0}</strong> | Updated: <strong>{pendingChangeSummary?.updatedCount ?? 0}</strong> | Auto-approved: <strong>{pendingChangeSummary?.autoApprovedCount ?? 0}</strong>
+              </span>
+              <span>
+                Selected: <strong>{selectedPendingChangeIds.length}</strong> / <strong>{pendingChanges.length}</strong>
+              </span>
+            </div>
+
+            {pendingChangesError ? <p className="mb-3 text-danger">{pendingChangesError}</p> : null}
+            {pendingChangesMessage ? <p className="mb-3 text-success">{pendingChangesMessage}</p> : null}
+
+            <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+              <SpkButton
+                variant="primary"
+                customClass={`ti-btn ${selectedPendingChangeIds.length === 0 || isApplyingPendingChanges ? "opacity-50 cursor-not-allowed" : ""}`}
+                disabled={selectedPendingChangeIds.length === 0 || isApplyingPendingChanges}
+                onclickfunc={() => void applySelectedPendingChanges()}
+              >
+                {isApplyingPendingChanges ? "Accepting Changes..." : `Accept Selected${selectedPendingChangeIds.length > 0 ? ` (${selectedPendingChangeIds.length})` : ""}`}
+              </SpkButton>
+            </div>
+
+            <div className="grid grid-cols-12 gap-4">
+              <div className="col-span-12 xl:col-span-5 rounded-sm border border-defaultborder p-3">
+                {isPendingPreviewLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <SpkSpinner customClass="!w-5 !h-5 text-primary" Label="Loading Crypto Updates">
+                      <span className="sr-only">Loading pending crypto updates...</span>
+                    </SpkSpinner>
+                  </div>
+                ) : pendingChanges.length > 0 ? (
+                  <div className="table-responsive max-h-[60vh] overflow-auto">
+                    <table className="table whitespace-nowrap min-w-full">
+                      <thead>
+                        <tr>
+                          <th>
+                            <input
+                              type="checkbox"
+                              aria-label="Select all crypto changes"
+                              className={CHECKBOX_INPUT_CLASS}
+                              checked={allPendingChangesSelected}
+                              onChange={toggleSelectAllPendingChanges}
+                            />
+                          </th>
+                          <th>Transaction ID</th>
+                          <th>Changed Fields</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingChanges.map((change) => {
+                          const isSelected = selectedPendingChangeIds.includes(change.changeId);
+                          const isFocused = (focusedPendingChange?.changeId ?? "") === change.changeId;
+
+                          return (
+                            <tr
+                              key={change.changeId}
+                              className={`cursor-pointer ${isFocused ? "bg-primary/5" : ""}`}
+                              onClick={() => setFocusedPendingChangeId(change.changeId)}
+                            >
+                              <td onClick={(event) => event.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select ${change.transactionId}`}
+                                  className={CHECKBOX_INPUT_CLASS}
+                                  checked={isSelected}
+                                  onChange={() => togglePendingChangeSelection(change.changeId)}
+                                />
+                              </td>
+                              <td>{change.transactionId}</td>
+                              <td className="max-w-[18rem] whitespace-normal text-[0.75rem] text-textmuted">
+                                {change.changedFields.map((field) => getChangedFieldLabel(field)).join(", ")}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mb-0 text-[0.8125rem] text-textmuted">No pending crypto updates were found.</p>
+                )}
+              </div>
+
+              <div className="col-span-12 xl:col-span-7 rounded-sm border border-defaultborder p-3">
+                {focusedPendingChange ? (
+                  <>
+                    <div className="mb-3 text-[0.8125rem] text-defaulttextcolor">
+                      Transaction ID: <strong>{focusedPendingChange.transactionId}</strong>
+                    </div>
+                    <div className="table-responsive max-h-[60vh] overflow-auto">
+                      <table className="table whitespace-nowrap min-w-full">
+                        <thead>
+                          <tr>
+                            <th>Field</th>
+                            <th>Current Value</th>
+                            <th>Incoming Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {focusedPendingChange.changedFields.map((field) => (
+                            <tr key={`${focusedPendingChange.changeId}-${field}`}>
+                              <td className="align-top text-[0.75rem] text-textmuted">{getChangedFieldLabel(field)}</td>
+                              <td className="align-top whitespace-normal break-all text-[0.8125rem]">{formatPreviewFieldValue(field, focusedPendingChange.existing) || "--"}</td>
+                              <td className="align-top whitespace-normal break-all text-[0.8125rem] text-primary">{formatPreviewFieldValue(field, focusedPendingChange.incoming) || "--"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mb-0 text-[0.8125rem] text-textmuted">Select a pending change to inspect the before and after values.</p>
+                )}
+              </div>
             </div>
           </div>
         </div>

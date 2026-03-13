@@ -80,9 +80,45 @@ create index if not exists crypto_workflow_donations_accepted_at_idx
 create index if not exists crypto_workflow_donations_hidden_at_idx
   on public.crypto_workflow_donations (hidden_at);
 
+alter table public.master_crypto_records enable row level security;
+alter table public.crypto_workflow_donations enable row level security;
+
+drop policy if exists master_crypto_records_service_role_all on public.master_crypto_records;
+create policy master_crypto_records_service_role_all
+on public.master_crypto_records
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists crypto_workflow_donations_service_role_all on public.crypto_workflow_donations;
+create policy crypto_workflow_donations_service_role_all
+on public.crypto_workflow_donations
+for all
+to service_role
+using (true)
+with check (true);
+
+create or replace view public.crypto_donation_records
+with (security_invoker = true) as
+select
+  m.transaction_id,
+  m.raw_record,
+  m.transaction_confirmed_timestamp,
+  m.created_at_source,
+  m.updated_at_source,
+  w.batch_transaction_number,
+  w.batch_name,
+  w.batch_assigned_at,
+  w.accepted_at,
+  w.hidden_at
+from public.master_crypto_records m
+join public.crypto_workflow_donations w on w.transaction_id = m.transaction_id;
+
 create or replace function public.set_master_crypto_records_updated_at()
 returns trigger
 language plpgsql
+set search_path = pg_catalog
 as $$
 begin
   new.updated_at = timezone('utc', now());
@@ -93,6 +129,7 @@ $$;
 create or replace function public.set_crypto_workflow_donations_updated_at()
 returns trigger
 language plpgsql
+set search_path = pg_catalog
 as $$
 begin
   new.updated_at = timezone('utc', now());

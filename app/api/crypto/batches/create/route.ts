@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 type CreateBatchBody = {
   transactionIds?: string[];
   batchName?: string;
+  batchDate?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -13,8 +14,9 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as CreateBatchBody;
     const transactionIds = Array.isArray(body?.transactionIds) ? body.transactionIds : [];
     const batchName = typeof body?.batchName === "string" ? body.batchName : "";
+    const batchDate = typeof body?.batchDate === "string" ? body.batchDate : "";
 
-    const result = await createCryptoBatch(transactionIds, batchName);
+    const result = await createCryptoBatch(transactionIds, batchName, batchDate);
 
     return NextResponse.json(result);
   } catch (error) {

@@ -6,8 +6,10 @@ import {
   formatCryptoValue,
   getCryptoChangedFields,
   getCryptoExternalId,
+  getTrackedCryptoChangedFields,
 } from "@/shared/lib/crypto-sync";
 import {
+  getStoredCryptoDonationRecordsPage,
   getLatestCryptoBatchNumber,
   getStoredCryptoWorkflowDonations,
   getStoredCryptoWorkflowDonationsByIds,
@@ -16,6 +18,7 @@ import {
   getStoredMasterCryptoRecordsByIds,
   getStoredMasterCryptoRecordsPage,
   patchCryptoWorkflowRecordsByIds,
+  SupabaseCryptoDonationRecordRow,
   SupabaseCryptoWorkflowDonationRow,
   SupabaseMasterCryptoRow,
   upsertCryptoWorkflowDonations,
@@ -38,6 +41,7 @@ type LegacyCryptoWorkflowStore = {
 const LEGACY_WORKFLOW_STORE_FILE = path.join(process.cwd(), ".cache", "crypto-workflow.json");
 let savedCryptoInitialized = false;
 let savedCryptoInitializationPromise: Promise<void> | null = null;
+let savedCryptoSyncPromise: Promise<number> | null = null;
 
 const MASTER_CRYPTO_FIELD_COLUMN_MAPPINGS = [
   ["npo", "npo"],
@@ -161,6 +165,26 @@ const applyWorkflowToRecord = (
   hiddenAt: workflowRow?.hidden_at ?? null,
 }) as CryptoRecord;
 
+const toRecordFromJoinedRow = (row: SupabaseCryptoDonationRecordRow) =>
+  applyWorkflowToRecord(
+    {
+      ...(row.raw_record ?? {}),
+      id: row.raw_record?.id ?? row.transaction_id,
+      createdAt: row.raw_record?.createdAt ?? row.created_at_source ?? null,
+      updatedAt: row.raw_record?.updatedAt ?? row.updated_at_source ?? null,
+    } as CryptoRecord,
+    {
+      transaction_id: row.transaction_id,
+      batch_transaction_number: row.batch_transaction_number,
+      batch_name: row.batch_name,
+      batch_assigned_at: row.batch_assigned_at,
+      accepted_at: row.accepted_at,
+      hidden_at: row.hidden_at,
+      created_at: "",
+      updated_at: "",
+    }
+  );
+
 const sortById = (records: CryptoRecord[]) => {
   return [...records].sort((left, right) => {
     const leftId = getCryptoExternalId(left);
@@ -274,6 +298,91 @@ const compareCryptoRecordsByNewest = (left: CryptoRecord, right: CryptoRecord) =
   return rightId.localeCompare(leftId, undefined, { numeric: true, sensitivity: "base" });
 };
 
+type CryptoApiReconciliationResult = {
+  liveRecords: CryptoRecord[];
+  savedRecords: CryptoRecord[];
+  newCount: number;
+  autoApprovedCount: number;
+  totalSyncedCount: number;
+};
+
+type CryptoSyncSummaryResult = {
+  syncedCount: number;
+  pendingCount: number;
+  summary: ReturnType<typeof buildCryptoExistingChanges>["summary"];
+};
+
+const reconcileCryptoApiState = async (): Promise<CryptoApiReconciliationResult> => {
+  await ensureSavedCryptoInitialized();
+  const { rows, map } = await getMasterRowsById();
+  const liveRecords = await fetchEngivenCryptoTransactions();
+  const savedRecordsById = new Map<string, CryptoRecord>();
+
+  rows.forEach((row) => {
+    const savedRecord = toRecordFromMasterRow(row);
+    savedRecordsById.set(row.transaction_id, savedRecord);
+  });
+
+  const newMasterRows = liveRecords
+    .map((record) => {
+      const transactionId = getCryptoExternalId(record);
+      if (!transactionId || map.has(transactionId)) {
+        return null;
+      }
+
+      return toMasterStoreRow(record);
+    })
+    .filter((row): row is NonNullable<typeof row> => !!row);
+
+  if (newMasterRows.length > 0) {
+    await upsertMasterCryptoRecords(newMasterRows);
+    await upsertCryptoWorkflowDonations(
+      newMasterRows.map((row) => ({ transaction_id: String(row.transaction_id) }))
+    );
+
+    newMasterRows.forEach((row) => {
+      const savedRecord = toRecordFromMasterRow(row as SupabaseMasterCryptoRow);
+      savedRecordsById.set(String(row.transaction_id), savedRecord);
+    });
+  }
+
+  const autoApprovedExistingRows = liveRecords
+    .map((record) => {
+      const transactionId = getCryptoExternalId(record);
+      const existingRecord = savedRecordsById.get(transactionId);
+
+      if (!transactionId || !existingRecord) {
+        return null;
+      }
+
+      const changedFields = getCryptoChangedFields(record, existingRecord);
+      if (changedFields.length === 0) {
+        return null;
+      }
+
+      const trackedChangedFields = getTrackedCryptoChangedFields(record, existingRecord, changedFields);
+      if (trackedChangedFields.length > 0) {
+        return null;
+      }
+
+      savedRecordsById.set(transactionId, record);
+      return toMasterStoreRow(record);
+    })
+    .filter((row): row is NonNullable<typeof row> => !!row);
+
+  if (autoApprovedExistingRows.length > 0) {
+    await upsertMasterCryptoRecords(autoApprovedExistingRows);
+  }
+
+  return {
+    liveRecords,
+    savedRecords: Array.from(savedRecordsById.values()),
+    newCount: newMasterRows.length,
+    autoApprovedCount: autoApprovedExistingRows.length,
+    totalSyncedCount: newMasterRows.length + autoApprovedExistingRows.length,
+  };
+};
+
 export async function ensureSavedCryptoInitialized() {
   if (savedCryptoInitialized) {
     return;
@@ -384,6 +493,33 @@ export async function getSavedCryptoTransactions() {
     .sort(compareCryptoRecordsByNewest);
 }
 
+export async function syncNewCryptoTransactionsFromApi() {
+  if (savedCryptoSyncPromise) {
+    return savedCryptoSyncPromise;
+  }
+
+  savedCryptoSyncPromise = (async () => {
+    const reconciliation = await reconcileCryptoApiState();
+    const preview = buildCryptoExistingChanges(
+      reconciliation.liveRecords,
+      reconciliation.savedRecords,
+      reconciliation.totalSyncedCount
+    );
+
+    return {
+      syncedCount: reconciliation.totalSyncedCount,
+      pendingCount: preview.summary.updatedCount,
+      summary: preview.summary,
+    } as CryptoSyncSummaryResult;
+  })();
+
+  try {
+    return await savedCryptoSyncPromise;
+  } finally {
+    savedCryptoSyncPromise = null;
+  }
+}
+
 export async function getSavedCryptoTransactionsPage(options: {
   offset: number;
   limit: number;
@@ -391,99 +527,27 @@ export async function getSavedCryptoTransactionsPage(options: {
   includeHidden?: boolean;
 }) {
   await ensureSavedCryptoInitialized();
-  const workflowPage = await getStoredCryptoWorkflowDonationsPage({
-    offset: 0,
-    limit: 1,
+  const page = await getStoredCryptoDonationRecordsPage({
+    offset: options.offset,
+    limit: options.limit,
     includeBatched: options.includeBatched,
     includeHidden: options.includeHidden,
   });
-  const workflowRows = await getStoredCryptoWorkflowDonations();
-  const workflowMap = new Map(
-    workflowRows
-      .filter((row) => {
-        if (!options.includeBatched && row.batch_transaction_number) {
-          return false;
-        }
-
-        if (!options.includeHidden && row.hidden_at) {
-          return false;
-        }
-
-        return true;
-      })
-      .map((row) => [row.transaction_id, row])
-  );
-
-  const targetCount = options.offset + options.limit;
-  const filteredRecords: CryptoRecord[] = [];
-  let masterOffset = 0;
-
-  while (filteredRecords.length < targetCount) {
-    const masterPage = await getStoredMasterCryptoRecordsPage({
-      offset: masterOffset,
-      limit: MASTER_RECORD_SCAN_PAGE_SIZE,
-    });
-
-    if (masterPage.rows.length === 0) {
-      break;
-    }
-
-    for (const masterRow of masterPage.rows) {
-      const workflowRow = workflowMap.get(masterRow.transaction_id);
-      if (!workflowRow) {
-        continue;
-      }
-
-      filteredRecords.push(applyWorkflowToRecord(toRecordFromMasterRow(masterRow), workflowRow));
-
-      if (filteredRecords.length >= targetCount) {
-        break;
-      }
-    }
-
-    if (masterPage.rows.length < MASTER_RECORD_SCAN_PAGE_SIZE) {
-      break;
-    }
-
-    masterOffset += MASTER_RECORD_SCAN_PAGE_SIZE;
-  }
-
-  const pageRows = filteredRecords.slice(options.offset, options.offset + options.limit);
 
   return {
-    records: pageRows,
-    totalCount: workflowPage.totalCount,
+    records: page.rows.map((row) => toRecordFromJoinedRow(row)),
+    totalCount: page.totalCount,
   };
 }
 
 export async function getCryptoExistingChanges() {
-  await ensureSavedCryptoInitialized();
-  const { rows, map } = await getMasterRowsById();
-  const liveRecords = await fetchEngivenCryptoTransactions();
+  const reconciliation = await reconcileCryptoApiState();
 
-  const newMasterRows = liveRecords
-    .map((record) => {
-      const transactionId = getCryptoExternalId(record);
-      if (!transactionId || map.has(transactionId)) {
-        return null;
-      }
-
-      return toMasterStoreRow(record);
-    })
-    .filter((row): row is NonNullable<typeof row> => !!row);
-
-  if (newMasterRows.length > 0) {
-    await upsertMasterCryptoRecords(newMasterRows);
-    await upsertCryptoWorkflowDonations(
-      newMasterRows.map((row) => ({ transaction_id: String(row.transaction_id) }))
-    );
-  }
-
-  const savedRecords = rows.map((row) => toRecordFromMasterRow(row)).concat(
-    newMasterRows.map((row) => toRecordFromMasterRow(row as SupabaseMasterCryptoRow))
+  return buildCryptoExistingChanges(
+    reconciliation.liveRecords,
+    reconciliation.savedRecords,
+    reconciliation.totalSyncedCount
   );
-
-  return buildCryptoExistingChanges(liveRecords, savedRecords, newMasterRows.length);
 }
 
 export async function applyCryptoExistingChanges(changeIds: string[]) {
@@ -548,27 +612,69 @@ const buildBatchNumber = (datePart: string, sequence: number) => {
   return `CB-${datePart}-${seqPart}`;
 };
 
-export async function createCryptoBatch(transactionIds: string[], batchName: string) {
+const normalizeBatchDateInput = (value: string) => {
+  const trimmedValue = value.trim();
+  const match = trimmedValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return trimmedValue;
+};
+
+const toBatchAssignedAtIso = (batchDate: string) => {
+  const normalizedBatchDate = normalizeBatchDateInput(batchDate);
+
+  if (!normalizedBatchDate) {
+    throw new Error("Batch date is required.");
+  }
+
+  const [year, month, day] = normalizedBatchDate.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0)).toISOString();
+};
+
+export async function createCryptoBatch(transactionIds: string[], batchName: string, batchDate: string) {
   await ensureSavedCryptoInitialized();
   const uniqueIds = Array.from(new Set(transactionIds.map((id) => id.trim()).filter((id) => id.length > 0)));
 
   const normalizedBatchName = batchName.trim();
+  const normalizedBatchDate = normalizeBatchDateInput(batchDate);
 
   if (!normalizedBatchName) {
     throw new Error("Batch name is required.");
+  }
+
+  if (!normalizedBatchDate) {
+    throw new Error("Batch date is required.");
   }
 
   if (uniqueIds.length === 0) {
     throw new Error("No valid unbatched transactions selected for batching.");
   }
 
-  const now = new Date();
-  const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const datePart = normalizedBatchDate.replace(/-/g, "");
   const prefix = `CB-${datePart}-`;
   const latestBatchNumber = await getLatestCryptoBatchNumber(prefix);
   const latestSequence = latestBatchNumber ? Number(latestBatchNumber.slice(prefix.length)) : 0;
   const batchNumber = buildBatchNumber(datePart, Number.isFinite(latestSequence) ? latestSequence + 1 : 1);
-  const createdAt = new Date().toISOString();
+  const createdAt = toBatchAssignedAtIso(normalizedBatchDate);
 
   await patchCryptoWorkflowRecordsByIds(uniqueIds, {
     batch_transaction_number: batchNumber,

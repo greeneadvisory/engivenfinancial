@@ -78,13 +78,6 @@ export const MENUITEMS: any = [
     icon: Chartsicon,
     children: [
       {
-        path: "/crypto/crypto-updates",
-        type: "link",
-        active: false,
-        selected: false,
-        title: "Crypto Updates",
-      },
-      {
         path: "/crypto/crypto-donations",
         type: "link",
         active: false,

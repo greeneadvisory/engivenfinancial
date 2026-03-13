@@ -70,6 +70,13 @@ export type CryptoPreviewChange = {
   existing: CryptoRecord;
 };
 
+const TRACKED_CRYPTO_FIELDS = new Set<CryptoField>([
+  "usdValueAtConfirmation",
+  "usdValueForNpo",
+  "npoName",
+  "guideStarName",
+]);
+
 export const formatCryptoValue = (value: CryptoValue) => {
   if (value === null || value === undefined) {
     return "";
@@ -96,6 +103,27 @@ export const getCryptoChangedFields = (incoming: CryptoRecord, existing: CryptoR
   });
 };
 
+export const getTrackedCryptoChangedFields = (
+  incoming: CryptoRecord,
+  existing: CryptoRecord,
+  changedFields = getCryptoChangedFields(incoming, existing)
+) => {
+  const existingStatus = formatCryptoValue(existing.statusFromAdmin).trim().toLowerCase();
+  const incomingStatus = formatCryptoValue(incoming.statusFromAdmin).trim().toLowerCase();
+
+  return changedFields.filter((field) => {
+    if (TRACKED_CRYPTO_FIELDS.has(field)) {
+      return true;
+    }
+
+    if (field === "statusFromAdmin") {
+      return existingStatus === "completed" && incomingStatus === "pending";
+    }
+
+    return false;
+  });
+};
+
 export const mapCryptoById = (records: CryptoRecord[]) => {
   const map = new Map<string, CryptoRecord>();
 
@@ -112,7 +140,7 @@ export const mapCryptoById = (records: CryptoRecord[]) => {
 export const buildCryptoExistingChanges = (
   incomingRecords: CryptoRecord[],
   savedRecords: CryptoRecord[],
-  newAutoApprovedCount = 0
+  autoApprovedCount = 0
 ) => {
   const incomingById = mapCryptoById(incomingRecords);
   const savedById = mapCryptoById(savedRecords);
@@ -128,7 +156,7 @@ export const buildCryptoExistingChanges = (
       return;
     }
 
-    const changedFields = getCryptoChangedFields(incoming, existing);
+    const changedFields = getTrackedCryptoChangedFields(incoming, existing);
 
     if (changedFields.length === 0) {
       unchangedCount += 1;
@@ -153,7 +181,7 @@ export const buildCryptoExistingChanges = (
       savedCount: savedRecords.length,
       updatedCount: changes.length,
       unchangedCount,
-      newAutoApprovedCount,
+      autoApprovedCount,
       newIgnoredCount,
     },
   };
