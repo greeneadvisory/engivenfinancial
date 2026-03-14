@@ -9,8 +9,10 @@ import {
   getTrackedCryptoChangedFields,
 } from "@/shared/lib/crypto-sync";
 import {
+  deleteCryptoWorkflowBatchesByNumbers,
   getStoredCryptoDonationRecordsPage,
   getLatestCryptoBatchNumber,
+  getStoredCryptoWorkflowBatches,
   getStoredCryptoWorkflowDonations,
   getStoredCryptoWorkflowDonationsByIds,
   getStoredCryptoWorkflowDonationsPage,
@@ -19,8 +21,10 @@ import {
   getStoredMasterCryptoRecordsPage,
   patchCryptoWorkflowRecordsByIds,
   SupabaseCryptoDonationRecordRow,
+  SupabaseCryptoWorkflowBatchRow,
   SupabaseCryptoWorkflowDonationRow,
   SupabaseMasterCryptoRow,
+  upsertCryptoWorkflowBatches,
   upsertCryptoWorkflowDonations,
   upsertMasterCryptoRecords,
 } from "@/shared/lib/supabase-rest";
@@ -29,6 +33,10 @@ type BatchInfo = {
   batchNumber: string;
   batchName: string | null;
   createdAt: string;
+  transactionCount?: number;
+  grossTotal?: number;
+  feeTotal?: number;
+  payoutTotal?: number;
   transactionIds: string[];
 };
 
@@ -103,6 +111,19 @@ const toNullableText = (value: unknown) => {
   const formatted = formatCryptoValue(value as string | number | boolean | null).trim();
   return formatted.length > 0 ? formatted : null;
 };
+
+const toNumber = (value: unknown) => {
+  const textValue = toNullableText(value);
+
+  if (!textValue) {
+    return 0;
+  }
+
+  const parsed = Number(textValue.replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const roundCurrency = (value: number) => Math.round(value * 100) / 100;
 
 const toMasterStoreRow = (record: CryptoRecord) => {
   const transactionId = getCryptoExternalId(record);
@@ -261,6 +282,90 @@ const getMasterRowsByIdsInChunks = async (transactionIds: string[]) => {
   }
 
   return rows;
+};
+
+const refreshCryptoWorkflowBatchSummaries = async (batchNumbers: string[]) => {
+  const uniqueBatchNumbers = Array.from(new Set(batchNumbers.map((value) => value.trim()).filter((value) => value.length > 0)));
+
+  if (uniqueBatchNumbers.length === 0) {
+    return;
+  }
+
+  const requestedBatchNumberSet = new Set(uniqueBatchNumbers);
+  const workflowRows = await getStoredCryptoWorkflowDonations();
+  const batchMap = new Map<string, BatchInfo>();
+
+  workflowRows.forEach((row) => {
+    const batchNumber = row.batch_transaction_number?.trim() ?? "";
+
+    if (!batchNumber || !requestedBatchNumberSet.has(batchNumber)) {
+      return;
+    }
+
+    const transactionId = row.transaction_id.trim();
+    const batchName = row.batch_name?.trim() || null;
+    const createdAt = row.batch_assigned_at ?? row.updated_at ?? row.created_at;
+    const existing = batchMap.get(batchNumber);
+
+    if (!existing) {
+      batchMap.set(batchNumber, {
+        batchNumber,
+        batchName,
+        createdAt,
+        transactionIds: transactionId ? [transactionId] : [],
+      });
+      return;
+    }
+
+    existing.createdAt = existing.createdAt.localeCompare(createdAt) > 0 ? existing.createdAt : createdAt;
+    existing.batchName = existing.batchName ?? batchName;
+
+    if (transactionId) {
+      existing.transactionIds.push(transactionId);
+    }
+  });
+
+  const transactionIds = Array.from(new Set(Array.from(batchMap.values()).flatMap((batch) => batch.transactionIds)));
+  const masterRows = await getMasterRowsByIdsInChunks(transactionIds);
+  const masterRowMap = new Map(masterRows.map((row) => [row.transaction_id, row]));
+
+  const upsertRows = Array.from(batchMap.values()).map((batch) => {
+    let grossTotal = 0;
+    let payoutTotal = 0;
+
+    batch.transactionIds.forEach((transactionId) => {
+      const masterRow = masterRowMap.get(transactionId);
+      if (!masterRow) {
+        return;
+      }
+
+      grossTotal += toNumber(masterRow.raw_record?.usdValueAtConfirmation ?? null);
+      payoutTotal += toNumber(masterRow.raw_record?.usdValueForNpo ?? null);
+    });
+
+    grossTotal = roundCurrency(grossTotal);
+    payoutTotal = roundCurrency(payoutTotal);
+
+    return {
+      batch_transaction_number: batch.batchNumber,
+      batch_name: batch.batchName,
+      batch_assigned_at: batch.createdAt,
+      transaction_count: batch.transactionIds.length,
+      gross_total: grossTotal,
+      fee_total: roundCurrency(grossTotal - payoutTotal),
+      payout_total: payoutTotal,
+    };
+  });
+
+  if (upsertRows.length > 0) {
+    await upsertCryptoWorkflowBatches(upsertRows);
+  }
+
+  const batchNumbersToDelete = uniqueBatchNumbers.filter((batchNumber) => !batchMap.has(batchNumber));
+
+  if (batchNumbersToDelete.length > 0) {
+    await deleteCryptoWorkflowBatchesByNumbers(batchNumbersToDelete);
+  }
 };
 
 const getRecordSortTimestamp = (record: CryptoRecord) => {
@@ -639,6 +744,25 @@ const normalizeBatchDateInput = (value: string) => {
   return trimmedValue;
 };
 
+const normalizeBatchNameKey = (value: string) => value.trim().toLocaleLowerCase();
+
+const getBatchDateKey = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const toBatchAssignedAtIso = (batchDate: string) => {
   const normalizedBatchDate = normalizeBatchDateInput(batchDate);
 
@@ -669,6 +793,25 @@ export async function createCryptoBatch(transactionIds: string[], batchName: str
     throw new Error("No valid unbatched transactions selected for batching.");
   }
 
+  const existingBatches = await getStoredCryptoWorkflowBatches();
+  const normalizedBatchNameKey = normalizeBatchNameKey(normalizedBatchName);
+  const hasDuplicateBatch = existingBatches.some((batch) => {
+    const existingBatchName = batch.batch_name?.trim();
+
+    if (!existingBatchName) {
+      return false;
+    }
+
+    return (
+      normalizeBatchNameKey(existingBatchName) === normalizedBatchNameKey &&
+      getBatchDateKey(batch.batch_assigned_at) === normalizedBatchDate
+    );
+  });
+
+  if (hasDuplicateBatch) {
+    throw new Error(`A batch named "${normalizedBatchName}" already exists for ${normalizedBatchDate}.`);
+  }
+
   const datePart = normalizedBatchDate.replace(/-/g, "");
   const prefix = `CB-${datePart}-`;
   const latestBatchNumber = await getLatestCryptoBatchNumber(prefix);
@@ -685,6 +828,8 @@ export async function createCryptoBatch(transactionIds: string[], batchName: str
       batch_transaction_number: "is.null",
     },
   });
+
+  await refreshCryptoWorkflowBatchSummaries([batchNumber]);
 
   return {
     batchNumber,
@@ -703,6 +848,15 @@ export async function unbatchCryptoTransactions(transactionIds: string[]) {
     throw new Error("No batched transactions selected to unbatch.");
   }
 
+  const existingWorkflowRows = await getStoredCryptoWorkflowDonationsByIds(uniqueIds);
+  const impactedBatchNumbers = Array.from(
+    new Set(
+      existingWorkflowRows
+        .map((row) => row.batch_transaction_number?.trim() ?? "")
+        .filter((value) => value.length > 0)
+    )
+  );
+
   await patchCryptoWorkflowRecordsByIds(uniqueIds, {
     batch_transaction_number: null,
     batch_name: null,
@@ -712,6 +866,8 @@ export async function unbatchCryptoTransactions(transactionIds: string[]) {
       batch_transaction_number: "not.is.null",
     },
   });
+
+  await refreshCryptoWorkflowBatchSummaries(impactedBatchNumbers);
 
   return {
     transactionCount: uniqueIds.length,
@@ -855,25 +1011,34 @@ const buildBatchesFromRows = (rows: SupabaseCryptoWorkflowDonationRow[]) => {
 
 export async function listCryptoBatches() {
   await ensureSavedCryptoInitialized();
-  const rows = await getStoredCryptoWorkflowDonations();
+  const rows = await getStoredCryptoWorkflowBatches();
 
-  return buildBatchesFromRows(rows)
-    .map((batch) => ({
-      batchNumber: batch.batchNumber,
-      batchName: batch.batchName,
-      createdAt: batch.createdAt,
-      transactionCount: batch.transactionIds.length,
+  return rows
+    .map((row) => ({
+      batchNumber: row.batch_transaction_number,
+      batchName: row.batch_name,
+      createdAt: row.batch_assigned_at ?? row.created_at,
+      transactionCount: Number(row.transaction_count ?? 0),
+      grossTotal: toNumber(row.gross_total),
+      feeTotal: toNumber(row.fee_total),
+      payoutTotal: toNumber(row.payout_total),
     }))
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 export async function getCryptoBatchDetail(batchNumber: string) {
   await ensureSavedCryptoInitialized();
-  const rows = await getStoredCryptoWorkflowDonations();
-  const batches = buildBatchesFromRows(rows);
-  const batch = batches.find((item) => item.batchNumber === batchNumber);
+  const normalizedBatchNumber = batchNumber.trim();
+  const [rows, batchRows] = await Promise.all([
+    getStoredCryptoWorkflowDonations(),
+    getStoredCryptoWorkflowBatches(),
+  ]);
+  const batch = batchRows.find((row) => row.batch_transaction_number === normalizedBatchNumber);
+  const batchTransactions = rows.filter(
+    (row) => (row.batch_transaction_number?.trim() ?? "") === normalizedBatchNumber
+  );
 
-  if (!batch) {
+  if (!batch || batchTransactions.length === 0) {
     return null;
   }
 
@@ -882,10 +1047,11 @@ export async function getCryptoBatchDetail(batchNumber: string) {
     rowMap.set(row.transaction_id, row);
   });
 
-  const masterRows = await getMasterRowsByIdsInChunks(batch.transactionIds);
+  const transactionIds = batchTransactions.map((row) => row.transaction_id);
+  const masterRows = await getMasterRowsByIdsInChunks(transactionIds);
   const masterMap = new Map(masterRows.map((row) => [row.transaction_id, row]));
 
-  const transactions = batch.transactionIds
+  const transactions = transactionIds
     .map((id) => rowMap.get(id))
     .filter((row): row is SupabaseCryptoWorkflowDonationRow => !!row)
     .map((workflowRow) => {
@@ -899,10 +1065,13 @@ export async function getCryptoBatchDetail(batchNumber: string) {
     .filter((row): row is CryptoRecord => !!row);
 
   return {
-    batchNumber: batch.batchNumber,
-    batchName: batch.batchName,
-    createdAt: batch.createdAt,
-    transactionCount: batch.transactionIds.length,
+    batchNumber: batch.batch_transaction_number,
+    batchName: batch.batch_name,
+    createdAt: batch.batch_assigned_at ?? batch.created_at,
+    transactionCount: Number(batch.transaction_count ?? transactions.length),
+    grossTotal: toNumber(batch.gross_total),
+    feeTotal: toNumber(batch.fee_total),
+    payoutTotal: toNumber(batch.payout_total),
     transactions: sortById(transactions),
   };
 }

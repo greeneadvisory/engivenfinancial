@@ -32,6 +32,17 @@ const buildTransactionIdInFilter = (transactionIds: string[]) => {
   return `in.(${escapedIds.join(",")})`;
 };
 
+const buildBatchNumberInFilter = (batchNumbers: string[]) => {
+  const uniqueValues = Array.from(new Set(batchNumbers.map((value) => value.trim()).filter((value) => value.length > 0)));
+
+  if (uniqueValues.length === 0) {
+    return null;
+  }
+
+  const escapedValues = uniqueValues.map((value) => `"${value.replace(/"/g, '\\"')}"`);
+  return `in.(${escapedValues.join(",")})`;
+};
+
 export async function supabaseRestRequest<T>(
   path: string,
   options?: {
@@ -113,6 +124,18 @@ export type SupabaseCryptoWorkflowDonationRow = {
   updated_at: string;
 };
 
+export type SupabaseCryptoWorkflowBatchRow = {
+  batch_transaction_number: string;
+  batch_name: string | null;
+  batch_assigned_at: string | null;
+  transaction_count: number;
+  gross_total: string | number | null;
+  fee_total: string | number | null;
+  payout_total: string | number | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type SupabaseCryptoDonationRecordRow = {
   transaction_id: string;
   raw_record: Record<string, string | number | boolean | null> | null;
@@ -176,6 +199,18 @@ const CRYPTO_WORKFLOW_DONATION_SELECT_FIELDS = [
   "batch_assigned_at",
   "accepted_at",
   "hidden_at",
+  "created_at",
+  "updated_at",
+].join(",");
+
+const CRYPTO_WORKFLOW_BATCH_SELECT_FIELDS = [
+  "batch_transaction_number",
+  "batch_name",
+  "batch_assigned_at",
+  "transaction_count",
+  "gross_total",
+  "fee_total",
+  "payout_total",
   "created_at",
   "updated_at",
 ].join(",");
@@ -409,6 +444,15 @@ export async function getStoredCryptoWorkflowDonations() {
   return allRows;
 }
 
+export async function getStoredCryptoWorkflowBatches() {
+  return supabaseRestRequest<SupabaseCryptoWorkflowBatchRow[]>("crypto_workflow_batches", {
+    query: {
+      select: CRYPTO_WORKFLOW_BATCH_SELECT_FIELDS,
+      order: "batch_assigned_at.desc.nullslast,created_at.desc,batch_transaction_number.desc",
+    },
+  });
+}
+
 export async function getStoredCryptoWorkflowDonationsPage(options: {
   offset: number;
   limit: number;
@@ -550,8 +594,8 @@ export async function patchCryptoWorkflowRecordsByIds(
 }
 
 export async function getLatestCryptoBatchNumber(prefix: string) {
-  const rows = await supabaseRestRequest<Array<Pick<SupabaseCryptoWorkflowDonationRow, "batch_transaction_number">>>(
-    "crypto_workflow_donations",
+  const rows = await supabaseRestRequest<Array<Pick<SupabaseCryptoWorkflowBatchRow, "batch_transaction_number">>>(
+    "crypto_workflow_batches",
     {
       query: {
         select: "batch_transaction_number",
@@ -620,5 +664,36 @@ export async function upsertCryptoWorkflowDonations(rows: Record<string, unknown
     },
     body: rows,
     prefer: "resolution=merge-duplicates,return=representation",
+  });
+}
+
+export async function upsertCryptoWorkflowBatches(rows: Record<string, unknown>[]) {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  return supabaseRestRequest<unknown>("crypto_workflow_batches", {
+    method: "POST",
+    query: {
+      on_conflict: "batch_transaction_number",
+    },
+    body: rows,
+    prefer: "resolution=merge-duplicates,return=representation",
+  });
+}
+
+export async function deleteCryptoWorkflowBatchesByNumbers(batchNumbers: string[]) {
+  const batchFilter = buildBatchNumberInFilter(batchNumbers);
+
+  if (!batchFilter) {
+    return [];
+  }
+
+  return supabaseRestRequest<unknown>("crypto_workflow_batches", {
+    method: "DELETE",
+    query: {
+      batch_transaction_number: batchFilter,
+    },
+    prefer: "return=minimal",
   });
 }

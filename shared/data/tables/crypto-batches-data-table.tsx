@@ -11,6 +11,9 @@ type BatchSummary = {
   batchName: string | null;
   createdAt: string;
   transactionCount: number;
+  grossTotal: number;
+  feeTotal: number;
+  payoutTotal: number;
 };
 
 type BatchDetail = {
@@ -18,7 +21,65 @@ type BatchDetail = {
   batchName: string | null;
   createdAt: string;
   transactionCount: number;
+  grossTotal: number;
+  feeTotal: number;
+  payoutTotal: number;
   transactions: Record<string, string | number | boolean | null>[];
+};
+
+const toNumber = (value: string | number | boolean | null | undefined) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "boolean" || value === null || value === undefined) {
+    return 0;
+  }
+
+  const parsed = Number(String(value).replace(/,/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatMoney = (value: string | number | boolean | null | undefined) =>
+  toNumber(value).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+const formatBatchDate = (value: string | null | undefined) => {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+};
+
+const formatBatchDateTime = (value: string | null | undefined) => {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString();
+};
+
+const calculateEngivenFee = (transaction: Record<string, string | number | boolean | null>) => {
+  const gross = toNumber(transaction.usdValueAtConfirmation as any);
+  const payout = toNumber(transaction.usdValueForNpo as any);
+  return gross - payout;
 };
 
 const CryptoBatchesDataTable = () => {
@@ -61,6 +122,7 @@ const CryptoBatchesDataTable = () => {
   const openBatchDetail = async (batchNumber: string) => {
     try {
       setIsDetailLoading(true);
+      setErrorMessage("");
       setDetail(null);
 
       const result = await fetchJsonWithClientCache<any>(`/api/crypto/batches/${encodeURIComponent(batchNumber)}`, {
@@ -82,105 +144,137 @@ const CryptoBatchesDataTable = () => {
     }
   };
 
-  const closeModal = () => {
+  const closeDetail = () => {
     setDetail(null);
   };
 
   return (
-    <span className="datatable">
+    <span className="datatable block w-full">
+      <div className="sticky top-0 z-20 mb-3 bg-white/95 pb-1 backdrop-blur dark:bg-bodybg/95">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem] text-defaulttextcolor">
+          <div className="min-w-0">
+            <h1 className="mb-0 text-lg font-medium text-defaulttextcolor">Manage Batches</h1>
+            <p className="mb-0 text-[0.8125rem] text-textmuted">
+              {detail
+                ? "Viewing all transactions assigned to the selected batch."
+                : "Review batch totals and open individual batches."}
+            </p>
+          </div>
+          {detail ? (
+            <SpkButton variant="light" customClass="ti-btn" onclickfunc={closeDetail}>
+              Back
+            </SpkButton>
+          ) : null}
+        </div>
+      </div>
+
       {errorMessage ? <p className="mb-3 text-danger">{errorMessage}</p> : null}
 
-      {isLoading ? (
+      {isLoading && !detail ? (
         <div className="py-6 flex items-center justify-center">
           <SpkSpinner customClass="!w-6 !h-6 text-purple-500" Label="Loading">
             <span className="sr-only">Loading...</span>
           </SpkSpinner>
+        </div>
+      ) : detail ? (
+        <div className="rounded-sm border border-defaultborder bg-white p-4 dark:bg-bodybg">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-[0.8125rem] text-defaulttextcolor">
+            <div>
+              <div>
+                Batch Name: <strong>{detail.batchName || "--"}</strong>
+              </div>
+              <div>
+                Batch Date: <strong>{formatBatchDate(detail.createdAt)}</strong>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-4 text-right">
+              <span>Gross: <strong>{formatMoney(detail.grossTotal)}</strong></span>
+              <span>Fee: <strong>{formatMoney(detail.feeTotal)}</strong></span>
+              <span>Payout: <strong>{formatMoney(detail.payoutTotal)}</strong></span>
+            </div>
+          </div>
+
+          {isDetailLoading ? (
+            <div className="py-6 flex items-center justify-center">
+              <SpkSpinner customClass="!w-6 !h-6 text-primary" Label="Loading Batch Detail">
+                <span className="sr-only">Loading batch detail...</span>
+              </SpkSpinner>
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <table className="table whitespace-nowrap min-w-full">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Transaction ID</th>
+                    <th>NPO Name</th>
+                    <th>Donor Name</th>
+                    <th className="text-end">Gross</th>
+                    <th className="text-end">Fee</th>
+                    <th className="text-end">Payout</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.transactions.length > 0 ? (
+                    detail.transactions.map((transaction) => (
+                      <tr key={String(transaction.id)}>
+                        <td>{formatBatchDateTime(transaction.transactionConfirmedTimeStamp as any)}</td>
+                        <td>{formatCryptoValue(transaction.id as any)}</td>
+                        <td>{formatCryptoValue((transaction.guideStarName ?? transaction.npoName) as any)}</td>
+                        <td>{formatCryptoValue(transaction.donorName as any)}</td>
+                        <td className="text-end tabular-nums">{formatMoney(transaction.usdValueAtConfirmation as any)}</td>
+                        <td className="text-end tabular-nums">{formatMoney(calculateEngivenFee(transaction))}</td>
+                        <td className="text-end tabular-nums">{formatMoney(transaction.usdValueForNpo as any)}</td>
+                        <td>{formatCryptoValue(transaction.statusFromAdmin as any)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="text-center text-textmuted">No transactions found for this batch.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       ) : (
         <div className="table-responsive">
           <table className="table whitespace-nowrap min-w-full">
             <thead>
               <tr>
-                <th>Batch #</th>
-                <th>Batch Name</th>
-                <th>Created At</th>
-                <th>Transactions</th>
-                <th>Action</th>
+                <th>Date</th>
+                <th>Name</th>
+                <th className="text-end">Sum of Gross</th>
+                <th className="text-end">Sum of Fee</th>
+                <th className="text-end">Sum of Payout</th>
+                <th>View</th>
               </tr>
             </thead>
             <tbody>
               {batches.length > 0 ? (
                 batches.map((batch) => (
                   <tr key={batch.batchNumber}>
-                    <td>{batch.batchNumber}</td>
-                    <td>{batch.batchName || "--"}</td>
-                    <td>{new Date(batch.createdAt).toLocaleString()}</td>
-                    <td>{batch.transactionCount}</td>
+                    <td>{formatBatchDate(batch.createdAt)}</td>
+                    <td>{batch.batchName || batch.batchNumber}</td>
+                    <td className="text-end tabular-nums">{formatMoney(batch.grossTotal)}</td>
+                    <td className="text-end tabular-nums">{formatMoney(batch.feeTotal)}</td>
+                    <td className="text-end tabular-nums">{formatMoney(batch.payoutTotal)}</td>
                     <td>
-                      <SpkButton variant="light" customClass="ti-btn" onclickfunc={() => openBatchDetail(batch.batchNumber)}>
-                        View Batch
+                      <SpkButton variant="light" customClass="ti-btn" onclickfunc={() => void openBatchDetail(batch.batchNumber)}>
+                        View
                       </SpkButton>
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="text-center text-textmuted">No batches created yet.</td>
+                  <td colSpan={6} className="text-center text-textmuted">No batches created yet.</td>
                 </tr>
               )}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {(detail || isDetailLoading) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-6xl rounded-sm bg-white dark:bg-bodybg p-4 border border-defaultborder">
-            <div className="mb-3 flex items-center justify-between">
-              <h6 className="mb-0">Batch {detail?.batchName ?? detail?.batchNumber ?? ""}</h6>
-              <SpkButton variant="light" customClass="ti-btn" onclickfunc={closeModal}>Close</SpkButton>
-            </div>
-
-            {isDetailLoading ? (
-              <div className="py-6 flex items-center justify-center">
-                <SpkSpinner customClass="!w-6 !h-6 text-purple-500" Label="Loading Batch Detail">
-                  <span className="sr-only">Loading batch detail...</span>
-                </SpkSpinner>
-              </div>
-            ) : detail ? (
-              <>
-                <p className="text-[0.8125rem] text-textmuted mb-3">
-                  Batch #: <strong>{detail.batchNumber}</strong> | Name: <strong>{detail.batchName || "--"}</strong> | Created: <strong>{new Date(detail.createdAt).toLocaleString()}</strong> | Transactions: <strong>{detail.transactionCount}</strong>
-                </p>
-                <div className="table-responsive max-h-[60vh] overflow-auto">
-                  <table className="table whitespace-nowrap min-w-full">
-                    <thead>
-                      <tr>
-                        <th>Transaction ID</th>
-                        <th>NPO Name</th>
-                        <th>Donor Name</th>
-                        <th>Amount</th>
-                        <th>Currency</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.transactions.map((transaction) => (
-                        <tr key={String(transaction.id)}>
-                          <td>{formatCryptoValue(transaction.id as any)}</td>
-                          <td>{formatCryptoValue(transaction.npoName as any)}</td>
-                          <td>{formatCryptoValue(transaction.donorName as any)}</td>
-                          <td>{formatCryptoValue(transaction.amount as any)}</td>
-                          <td>{formatCryptoValue(transaction.currency as any)}</td>
-                          <td>{formatCryptoValue(transaction.transactionStatus as any)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : null}
-          </div>
         </div>
       )}
     </span>

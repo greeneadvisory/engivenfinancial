@@ -71,6 +71,22 @@ create table if not exists public.crypto_workflow_donations (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.crypto_workflow_batches (
+  batch_transaction_number text primary key,
+  batch_name text null,
+  batch_assigned_at timestamptz null,
+  transaction_count integer not null default 0,
+  gross_total numeric(14, 2) not null default 0,
+  fee_total numeric(14, 2) not null default 0,
+  payout_total numeric(14, 2) not null default 0,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create unique index if not exists crypto_workflow_batches_batch_date_name_unique_idx
+  on public.crypto_workflow_batches (((batch_assigned_at at time zone 'utc')::date), lower(btrim(batch_name)))
+  where batch_assigned_at is not null and batch_name is not null and btrim(batch_name) <> '';
+
 create index if not exists crypto_workflow_donations_batch_transaction_number_idx
   on public.crypto_workflow_donations (batch_transaction_number);
 
@@ -82,6 +98,7 @@ create index if not exists crypto_workflow_donations_hidden_at_idx
 
 alter table public.master_crypto_records enable row level security;
 alter table public.crypto_workflow_donations enable row level security;
+alter table public.crypto_workflow_batches enable row level security;
 
 drop policy if exists master_crypto_records_service_role_all on public.master_crypto_records;
 create policy master_crypto_records_service_role_all
@@ -94,6 +111,14 @@ with check (true);
 drop policy if exists crypto_workflow_donations_service_role_all on public.crypto_workflow_donations;
 create policy crypto_workflow_donations_service_role_all
 on public.crypto_workflow_donations
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists crypto_workflow_batches_service_role_all on public.crypto_workflow_batches;
+create policy crypto_workflow_batches_service_role_all
+on public.crypto_workflow_batches
 for all
 to service_role
 using (true)
@@ -137,6 +162,17 @@ begin
 end;
 $$;
 
+create or replace function public.set_crypto_workflow_batches_updated_at()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  new.updated_at = timezone('utc', now());
+  return new;
+end;
+$$;
+
 drop trigger if exists set_master_crypto_records_updated_at on public.master_crypto_records;
 create trigger set_master_crypto_records_updated_at
 before update on public.master_crypto_records
@@ -148,6 +184,12 @@ create trigger set_crypto_workflow_donations_updated_at
 before update on public.crypto_workflow_donations
 for each row
 execute function public.set_crypto_workflow_donations_updated_at();
+
+drop trigger if exists set_crypto_workflow_batches_updated_at on public.crypto_workflow_batches;
+create trigger set_crypto_workflow_batches_updated_at
+before update on public.crypto_workflow_batches
+for each row
+execute function public.set_crypto_workflow_batches_updated_at();
 
 -- Optional migration from the legacy table if it still exists.
 do $$
@@ -304,3 +346,36 @@ begin
   on conflict (transaction_id) do nothing;
 end;
 $$;
+
+insert into public.crypto_workflow_batches (
+  batch_transaction_number,
+  batch_name,
+  batch_assigned_at,
+  transaction_count,
+  gross_total,
+  fee_total,
+  payout_total
+)
+select
+  w.batch_transaction_number,
+  max(w.batch_name),
+  max(w.batch_assigned_at),
+  count(*)::integer,
+  coalesce(sum(coalesce(nullif(replace(m.usd_value_at_confirmation, ',', ''), ''), '0')::numeric), 0)::numeric(14, 2),
+  (
+    coalesce(sum(coalesce(nullif(replace(m.usd_value_at_confirmation, ',', ''), ''), '0')::numeric), 0)
+    - coalesce(sum(coalesce(nullif(replace(m.usd_value_for_npo, ',', ''), ''), '0')::numeric), 0)
+  )::numeric(14, 2),
+  coalesce(sum(coalesce(nullif(replace(m.usd_value_for_npo, ',', ''), ''), '0')::numeric), 0)::numeric(14, 2)
+from public.crypto_workflow_donations w
+join public.master_crypto_records m on m.transaction_id = w.transaction_id
+where w.batch_transaction_number is not null
+group by w.batch_transaction_number
+on conflict (batch_transaction_number) do update
+set
+  batch_name = excluded.batch_name,
+  batch_assigned_at = excluded.batch_assigned_at,
+  transaction_count = excluded.transaction_count,
+  gross_total = excluded.gross_total,
+  fee_total = excluded.fee_total,
+  payout_total = excluded.payout_total;

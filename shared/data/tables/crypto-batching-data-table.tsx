@@ -2394,7 +2394,7 @@ const CryptoBatchingDataTable = () => {
               ? "Unbatching..."
               : `Unbatch${canUnbatch ? ` (${selectedBatchedRows.length})` : ""}`
             : isSavingBatch
-              ? "Saving Batch..."
+              ? "Batching..."
               : `Batch${canBatch ? ` (${selectedUnbatchedRows.length})` : ""}`}
         </SpkButton>
         </div>
@@ -2519,7 +2519,7 @@ const CryptoBatchingDataTable = () => {
                 customClass={`ti-btn ${isSavingBatch ? "opacity-50 cursor-not-allowed" : ""}`}
                 onclickfunc={createBatch}
               >
-                {isSavingBatch ? "Saving Batch..." : "Create Batch"}
+                {isSavingBatch ? "Batching..." : "Create Batch"}
               </SpkButton>
             </div>
           </div>

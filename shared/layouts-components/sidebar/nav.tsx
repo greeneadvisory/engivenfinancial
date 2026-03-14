@@ -84,6 +84,13 @@ export const MENUITEMS: any = [
         selected: false,
         title: "Crypto Donations",
       },
+      {
+        path: "/crypto/manage-batches",
+        type: "link",
+        active: false,
+        selected: false,
+        title: "Manage Batches",
+      },
     ],
   },
   {
