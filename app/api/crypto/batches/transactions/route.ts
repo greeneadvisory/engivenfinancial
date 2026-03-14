@@ -3,6 +3,7 @@ import {
   getSavedCryptoTransactionsPage,
   syncNewCryptoTransactionsFromApi,
 } from "@/shared/lib/crypto-workflow-store";
+import { isEngivenAdminApiConfigured } from "@/shared/lib/engiven-crypto";
 import { parsePaginationParams } from "@/shared/lib/pagination";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,22 @@ export async function GET(request: NextRequest) {
       maxPerPage: 50000,
     });
 
-    const syncResult = syncWithApi ? await syncNewCryptoTransactionsFromApi() : null;
+    let syncResult: Awaited<ReturnType<typeof syncNewCryptoTransactionsFromApi>> | null = null;
+    let syncWarning: string | null = null;
+
+    if (syncWithApi) {
+      if (!isEngivenAdminApiConfigured()) {
+        syncWarning = "Live crypto sync skipped because ENGIVEN_ADMIN_API_KEY is not configured on this deployment.";
+      } else {
+        try {
+          syncResult = await syncNewCryptoTransactionsFromApi();
+        } catch (error) {
+          syncWarning =
+            error instanceof Error ? error.message : "Live crypto sync failed; showing saved records instead.";
+        }
+      }
+    }
+
     const result = await getSavedCryptoTransactionsPage({
       offset,
       limit: perPage,
@@ -34,6 +50,7 @@ export async function GET(request: NextRequest) {
       syncedCount: syncResult?.syncedCount ?? 0,
       pendingCount: syncResult?.pendingCount ?? 0,
       pendingSummary: syncResult?.summary ?? null,
+      syncWarning,
       records: result.records,
     });
   } catch (error) {
